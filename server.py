@@ -1,8 +1,12 @@
 import socket
 import ssl
 import json
-from database import create_user
-# flake8: noqa: E303
+from database import (
+    create_user,
+    get_user_all_data,
+    get_user_public_info,
+    verify_signature
+)
 
 def handle_client_request(data):
     try:
@@ -23,11 +27,22 @@ def handle_client_request(data):
             # TODO: Implement password reset logic
             result = {"status": "error", "message": "Reset password not implemented yet."}
         elif action == "retrieve_keys":
-            # TODO: Implement key retrieval logic
             result = {"status": "error", "message": "Key retrieval not implemented yet."}
         elif action == "send_message":
             # TODO: Implement secure messaging
             result = {"status": "success", "echo": request.get("message", "")}
+        elif action == "get_user_all_data":
+            username = request.get("username")
+            if not username:
+                result = {"status": "error", "message": "Missing 'username' in request."}
+            else:
+                result = get_user_all_data(username)
+        elif action == "get_user_public_info":
+            username = request.get("username")
+            if not username:
+                result = {"status": "error", "message": "Missing 'username' in request."}
+            else:
+                result = get_user_public_info(username)
         else:
             result = {"status": "error", "message": "Invalid action."}
     except json.JSONDecodeError:

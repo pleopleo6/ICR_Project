@@ -1,13 +1,12 @@
 from flask import Flask, render_template, request, redirect, url_for
 import json
-from client import create_user, reset_password, retrieve_keys
+from client import create_user, reset_password, get_keys_from_password
+import socket
+import ssl
 
 app = Flask(__name__)
 
 def send_payload(payload):
-    import socket
-    import ssl
-
     host = 'localhost'
     port = 8443
     server_cert = 'server.crt'
@@ -39,6 +38,33 @@ def create_user_page():
         response = send_payload(payload)
         return render_template("response.html", response=response)
     return render_template("create_user.html")
+
+@app.route("/reset_password", methods=["GET", "POST"])
+def reset_password_page():
+    if request.method == "POST":
+        new_password = request.form.get("new_password")
+
+        payload = reset_password(new_password)
+
+        response = send_payload(payload)
+        return render_template("response.html", response=response)
+
+    return render_template("reset_password.html")
+
+@app.route("/retrieve_keys", methods=["GET", "POST"])
+def retrieve_keys_page():
+    if request.method == "POST":
+        username =  request.form.get("username")
+        password = request.form.get("password")
+
+        payload = json.dumps({"action": "get_user_all_data", "username": username})
+        rep = send_payload(payload)
+
+        response = get_keys_from_password(username, password, rep)
+        
+        return render_template("response.html", response=response)
+
+    return render_template("retrieve_keys.html")
 
 if __name__ == "__main__":
     app.run(debug=True, port=5050)

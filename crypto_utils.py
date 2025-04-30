@@ -1,5 +1,7 @@
 import secrets
 import base64
+from pathlib import Path
+from cryptography.hazmat.primitives import serialization
 from argon2.low_level import Type, hash_secret_raw
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives import hashes
@@ -50,3 +52,60 @@ def encrypt_private_key(private_key_bytes: bytes, key: bytes) -> bytes:
     nonce = generate_salt(12)
     ciphertext = aead.encrypt(nonce, private_key_bytes, associated_data=None)
     return nonce + ciphertext #TAG include at the end of ciphertext
+
+def decrypt_private_key(encrypted_data: bytes, key: bytes) -> bytes:
+    """Decrypt private key encrypted with ChaCha20-Poly1305"""
+    aead = ChaCha20Poly1305(key)
+    nonce = encrypted_data[:12]  # First 12 bytes are nonce
+    ciphertext = encrypted_data[12:]  # Rest is ciphertext+tag
+    return aead.decrypt(nonce, ciphertext, associated_data=None)
+
+def print_and_compare_keys(username, priv_sign, priv_enc):
+    user_dir = Path(f"client_keys/{username}")
+
+    def load_private_key(path):
+        with open(path, "rb") as f:
+            return serialization.load_pem_private_key(f.read(), password=None)
+
+    def load_public_key(path):
+        with open(path, "rb") as f:
+            return serialization.load_pem_public_key(f.read())
+
+    print("\n===== 🔍 COMPARAISON DES CLÉS =====")
+
+    # Recharger les clés locales
+    stored_priv_sign = load_private_key(user_dir / "sign_key.pem")
+    stored_priv_enc = load_private_key(user_dir / "enc_key.pem")
+    stored_pub_sign = load_public_key(user_dir / "sign_pub.pem")
+    stored_pub_enc = load_public_key(user_dir / "enc_pub.pem")
+
+    # Afficher et comparer les clés
+    def b64_raw(pub):
+        return base64.b64encode(pub.public_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PublicFormat.Raw
+        )).decode()
+
+    print("\n📤 Clé publique SIGN")
+    print(" - Déchiffrée :", b64_raw(priv_sign.public_key()))
+    print(" - Stockée    :", b64_raw(stored_priv_sign.public_key()))
+    print(" - Pub stockée:", b64_raw(stored_pub_sign))
+    assert priv_sign.public_key().public_bytes(
+        serialization.Encoding.Raw, serialization.PublicFormat.Raw
+    ) == stored_pub_sign.public_bytes(
+        serialization.Encoding.Raw, serialization.PublicFormat.Raw
+    ), "❌ Signature pubkey mismatch"
+    print(" ✅ Clés SIGN identiques")
+
+    print("\n📤 Clé publique ENC")
+    print(" - Déchiffrée :", b64_raw(priv_enc.public_key()))
+    print(" - Stockée    :", b64_raw(stored_priv_enc.public_key()))
+    print(" - Pub stockée:", b64_raw(stored_pub_enc))
+    assert priv_enc.public_key().public_bytes(
+        serialization.Encoding.Raw, serialization.PublicFormat.Raw
+    ) == stored_pub_enc.public_bytes(
+        serialization.Encoding.Raw, serialization.PublicFormat.Raw
+    ), "❌ Encryption pubkey mismatch"
+    print(" ✅ Clés ENC identiques")
+
+    print("\n✅ Toutes les clés sont identiques et cohérentes !")

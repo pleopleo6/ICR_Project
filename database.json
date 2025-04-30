@@ -1,10 +1,18 @@
 {
-    "leo": {
-        "salt_argon2": "BSVdjQ+7lT2KCoxX7tB51/YXAEs2XCRhzwBmt3DjCLo=",
-        "salt_hkdf": "66lDA8Q75C4pGxk/mIedsqfcOJqG6yvD4ITEPEgAmdE=",
-        "PubKey_sign": "1MJwW10zxbFL1Le8KugpiqADM+YbMdb1YCZe0Wza4QM=",
-        "PubKey_enc": "uX17YAljahEziQ7E3gxTfPClxCj2tOMW1GyMd115XE8=",
-        "Encrypted_sign_key": "gWAxCQsIpLFbfBOiTsP0QJTLdi0ifyL4SzhTdvEXBUdN9/7rQiFLd9OO/zRatJhlISeVi1qF8bQOm+/b",
-        "Encrypted_enc_key": "eNEXiw6iGg+RI2V6R/JhBMSbm4T5+W8sIQg0TllstQ68y+VkTYFM9GJdP2546Kgv4Q+lc9OIJdAIgKo0"
+    "alice": {
+        "salt_argon2": "MkZxNMhvNqgdD/vcbjWerDaPPJdHi3dLdTuLw5NiNds=",
+        "salt_hkdf": "ffL+Q92FWpOUu1J3GuXqGXR0/BHdq/QlVlDyJ+NoVZw=",
+        "PubKey_sign": "I7TqPOe4IzfN1d5c2mhNObh+6icxbSMh92eNrYCyylA=",
+        "PubKey_enc": "Yzbq2aXAlYY9OmWCdyZLK/J51Ds1obL69mrlye2ozCw=",
+        "Encrypted_sign_key": "UOPqZU9Ec013jfl2+lBW0VgV/cqDKTwZapsxJKN2RwIC0ZqAswfGbzA9PsOzwHSp4A3fs3dpQNjZitGM",
+        "Encrypted_enc_key": "4qpXrPjN+mA7DqA2FAbpmIcRTVsmVjN/hsaY+iKV7lgMMoVv+gATtJ7gk+bKrsC7+qCPNGVBGBSLYx23"
+    },
+    "bob": {
+        "salt_argon2": "5AZdyY7gfDRWcioJieXFAzkBgeTQKzr/yze9ULvsz08=",
+        "salt_hkdf": "w610/FNBUGs+/TDtrJfawAPcXSPiVqkT/c0J3AbMsYY=",
+        "PubKey_sign": "fYLii0ZMmqa2fvZu8ZrnW01mERspHMxd/IeIKYgGfgM=",
+        "PubKey_enc": "VUNeOVmAO7RWqYdjHSiabhGvlm/RUS1boRW+9JX7SV8=",
+        "Encrypted_sign_key": "leFePsh1mp3ruidyrfEuORvuuqbOmeQ+I3yAmtsCyLnYvkMvhtBTy8oMcXmI3atOgjpEEL1FN8H5Ckdm",
+        "Encrypted_enc_key": "HNXWkFvQIEgz3CVriip7jYamMHg9AAPnSk2rpTrwRW2rdT9HBWft6v2pWRpFc/HANoqZbuJNCAAWxyWY"
     }
 }
