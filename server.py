@@ -4,7 +4,6 @@ import json
 from database import (
     create_user,
     get_user_all_data,
-    get_user_public_info,
     verify_signature
 )
 
@@ -25,7 +24,7 @@ def handle_client_request(data):
             )
         elif action == "reset_password":
             # TODO: Implement password reset logic
-            result = {"status": "error", "message": "Reset password not implemented yet."}
+            result = {"status": "error", "message": request}
         elif action == "retrieve_keys":
             result = {"status": "error", "message": "Key retrieval not implemented yet."}
         elif action == "send_message":

@@ -42,10 +42,16 @@ def create_user_page():
 @app.route("/reset_password", methods=["GET", "POST"])
 def reset_password_page():
     if request.method == "POST":
+        username = request.form.get("old_password")
+        old_password = request.form.get("old_password")
         new_password = request.form.get("new_password")
 
-        payload = reset_password(new_password)
+        payload = json.dumps({"action": "get_user_all_data", "username": username})
+        rep = send_payload(payload)
 
+        get_keys_from_password(username, old_password, rep)
+
+        payload = reset_password(new_password, username)
         response = send_payload(payload)
         return render_template("response.html", response=response)
 
