@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Client Interface</title>
+</head>
+<body>
+  <h1>ICR Project</h1>
+
+  <form method="POST">
+    <a href="/create_user"><button type="button">Create User</button></a><br><br>
+    <button name="action" value="reset_password">Reset Password</button>
+    <button name="action" value="retrieve_keys">Retrieve Keys</button><br><br>
+    <label>Send Message:</label><br>
+    <input type="text" name="message" size="50">
+    <button name="action" value="send_message">Send</button>
+  </form>
+
+  {% if response %}
+    <h3>Response:</h3>
+    <pre>{{ response }}</pre>
+  {% endif %}
+</body>
+</html>
