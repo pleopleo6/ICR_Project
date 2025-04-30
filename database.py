@@ -23,20 +23,6 @@ def get_user_all_data(username):
     else:
         return {"status": "error", "message": "User not found"}
 
-
-def get_user_public_info(username):
-    db = load_database()
-    if username in db:
-        user = db[username]
-        return {
-            "status": "success",
-            "username": username,
-            "PubKey_sign": user.get("PubKey_sign"),
-            "PubKey_enc": user.get("PubKey_enc")
-        }
-    else:
-        return {"status": "error", "message": "User not found"}
-
 def create_user(username, salt_argon2, salt_hkdf, pubkey_sign, pubkey_enc, encrypted_sign_key, encrypted_enc_key):
     # Load existing database or initialize a new one
     if os.path.exists(DB_FILE):

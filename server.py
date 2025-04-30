@@ -37,12 +37,6 @@ def handle_client_request(data):
                 result = {"status": "error", "message": "Missing 'username' in request."}
             else:
                 result = get_user_all_data(username)
-        elif action == "get_user_public_info":
-            username = request.get("username")
-            if not username:
-                result = {"status": "error", "message": "Missing 'username' in request."}
-            else:
-                result = get_user_public_info(username)
         else:
             result = {"status": "error", "message": "Invalid action."}
     except json.JSONDecodeError:
@@ -56,13 +50,11 @@ def handle_client_request(data):
 
 
 def run_server():
-    # Server configuration
     host = 'localhost'
     port = 8443
     server_cert = 'server.crt'
     server_key = 'server.key'
-    
-    # Create SSL context with modern settings
+
     context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
     context.load_cert_chain(certfile=server_cert, keyfile=server_key)
     context.minimum_version = ssl.TLSVersion.TLSv1_3
@@ -73,27 +65,30 @@ def run_server():
         sock.bind((host, port))
         sock.listen(5)
         print(f"Server listening on {host}:{port}")
-        
+
         with context.wrap_socket(sock, server_side=True) as ssock:
-            print("Waiting for client connection...")
-            try:
-                conn, addr = ssock.accept()
-                print(f"Connected to client: {addr}")
-                
-                with conn:
-                    while True:
-                        data = conn.recv(4096)
-                        if not data:
-                            break
-                        print(f"Received raw data: {data}")
-                        response = handle_client_request(data)
-                        conn.sendall(response)
-                
-                print("Connection closed")
-            except ssl.SSLError as e:
-                print(f"SSL Error: {e}")
-            except Exception as e:
-                print(f"Server error: {e}")
+            print("Waiting for client connections...")
+
+            while True:
+                try:
+                    conn, addr = ssock.accept()
+                    print(f"\nConnected to client: {addr}")
+
+                    with conn:
+                        while True:
+                            data = conn.recv(4096)
+                            if not data:
+                                break
+                            print(f"Received raw data: {data}")
+                            response = handle_client_request(data)
+                            conn.sendall(response)
+
+                    print("Connection closed")
+
+                except ssl.SSLError as e:
+                    print(f"SSL Error: {e}")
+                except Exception as e:
+                    print(f"Server error: {e}")
 
 if __name__ == "__main__":
     run_server()
