@@ -55,27 +55,6 @@ def create_user(username, salt_argon2, salt_hkdf, pubkey_sign, pubkey_enc, encry
     return {"status": "success", "message": f"User {username} created successfully"}
 
 
-
-###### Crypto functions : 
-
-def verify_signature(username, message: str, signature_b64: str):
-    db = load_database()
-    if username not in db:
-        return False, "User not found"
-    
-    pubkey_b64 = db[username].get("PubKey_sign")
-    if not pubkey_b64:
-        return False, "Public key not found"
-
-    try:
-        pubkey_bytes = base64.b64decode(pubkey_b64)
-        signature_bytes = base64.b64decode(signature_b64)
-        pubkey = Ed25519PublicKey.from_public_bytes(pubkey_bytes)
-        pubkey.verify(signature_bytes, message.encode())
-        return True, "Signature valid"
-    except (InvalidSignature, ValueError) as e:
-        return False, f"Invalid signature: {e}"
-    
 def reset_password(username, salt_argon2, salt_hkdf, Encrypted_sign_key, Encrypted_enc_key):
     try:
         db = load_database()
@@ -97,3 +76,37 @@ def reset_password(username, salt_argon2, salt_hkdf, Encrypted_sign_key, Encrypt
     except Exception as e:
         print(f"Error updating database: {e}")
         return False
+
+def get_all_users():
+    try:
+        with open("database.json", "r") as f:
+            db = json.load(f)
+
+        user_list = list(db.keys())
+        return {"status": "success", "users": user_list}
+
+    except FileNotFoundError:
+        return {"status": "error", "message": "Database not found."}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+###### Crypto functions : 
+
+def verify_signature(username, message: str, signature_b64: str):
+    db = load_database()
+    if username not in db:
+        return False, "User not found"
+    
+    pubkey_b64 = db[username].get("PubKey_sign")
+    if not pubkey_b64:
+        return False, "Public key not found"
+
+    try:
+        pubkey_bytes = base64.b64decode(pubkey_b64)
+        signature_bytes = base64.b64decode(signature_b64)
+        pubkey = Ed25519PublicKey.from_public_bytes(pubkey_bytes)
+        pubkey.verify(signature_bytes, message.encode())
+        return True, "Signature valid"
+    except (InvalidSignature, ValueError) as e:
+        return False, f"Invalid signature: {e}"
+    

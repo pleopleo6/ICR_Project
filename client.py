@@ -1,12 +1,11 @@
-import socket
-import ssl
 import json
 import base64
-import os
 from pathlib import Path
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
+import base64
+import json
 from crypto_utils import (
     generate_salt,
     derive_encryption_key,
@@ -16,9 +15,7 @@ from crypto_utils import (
     encrypt_private_key,
     decrypt_private_key
 )
-import base64
-import json
-from crypto_utils import generate_salt, hash_password_argon2id
+
 
 def load_private_key(path):
     with open(path, "rb") as f:
