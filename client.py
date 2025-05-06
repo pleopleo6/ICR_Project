@@ -24,7 +24,7 @@ def load_private_key(path):
     with open(path, "rb") as f:
         return serialization.load_pem_private_key(f.read(), password=None)
 
-def save_keys(username, priv_sign, pub_sign, priv_enc, pub_enc):
+def save_keys(username, priv_sign, pub_sign, priv_enc, pub_enc):    
     user_dir = Path(f"client_keys/{username}")
     user_dir.mkdir(parents=True, exist_ok=True)
 
@@ -94,10 +94,10 @@ def get_keys_from_password(username, password, response_json):
         # Save locally
         save_keys(username, priv_sign, pub_sign, priv_enc, pub_enc)
 
-        return "Keys successfully retrieved and stored locally."
+        return True
 
     except Exception as e:
-        return f"Decryption failed: {str(e)}"
+        return False
 
 def create_user(username=None, password=None):
     if username is None:
@@ -164,11 +164,9 @@ def create_user(username=None, password=None):
 
 
 def reset_password(new_password, username):
-        # Nouveau : on charge les anciennes clés depuis le dossier
     user_dir = Path(f"client_keys/{username}")
     priv_sign = load_private_key(user_dir / "sign_key.pem")
     priv_enc  = load_private_key(user_dir / "enc_key.pem")
-
 
     # 1. Nouveau sel et dérivation de clé avec le nouveau mot de passe
     salt_argon2 = generate_salt(32)
@@ -177,51 +175,37 @@ def reset_password(new_password, username):
     hashed = hash_password_argon2id(new_password, salt_argon2)
     derived_key = derive_encryption_key(hashed, salt_hkdf, length=32)
 
-    # 2. Extraction brute des clés privées existantes
+    # 2. Extraire et rechiffrer les clés privées existantes
     privkey_sign_bytes = priv_sign.private_bytes(
         encoding=serialization.Encoding.Raw,
         format=serialization.PrivateFormat.Raw,
         encryption_algorithm=serialization.NoEncryption()
     )
-
     privkey_enc_bytes = priv_enc.private_bytes(
         encoding=serialization.Encoding.Raw,
         format=serialization.PrivateFormat.Raw,
         encryption_algorithm=serialization.NoEncryption()
     )
 
-    # 3. Rechiffrer les clés privées avec la nouvelle clé dérivée
     encrypted_sign_key = base64.b64encode(encrypt_private_key(privkey_sign_bytes, derived_key)).decode()
     encrypted_enc_key = base64.b64encode(encrypt_private_key(privkey_enc_bytes, derived_key)).decode()
 
-    # 4. Renvoyer les clés publiques (inchangées)
-    pubkey_sign = base64.b64encode(priv_sign.public_key().public_bytes(
-        encoding=serialization.Encoding.Raw,
-        format=serialization.PublicFormat.Raw
-    )).decode()
-
-    pubkey_enc = base64.b64encode(priv_enc.public_key().public_bytes(
-        encoding=serialization.Encoding.Raw,
-        format=serialization.PublicFormat.Raw
-    )).decode()
-
+    # 3. Créer le message à signer (sans les clés publiques)
     unsigned_payload = {
         "action": "reset_password",
         "username": username,
         "salt_argon2": base64.b64encode(salt_argon2).decode(),
         "salt_hkdf": base64.b64encode(salt_hkdf).decode(),
-        "PubKey_sign": pubkey_sign,
-        "PubKey_enc": pubkey_enc,
         "Encrypted_sign_key": encrypted_sign_key,
         "Encrypted_enc_key": encrypted_enc_key
     }
 
-    # 6. Signer le message JSON
+    # 4. Signer le message avec l'ancienne clé de signature
     message = json.dumps(unsigned_payload, sort_keys=True).encode()
     signature = priv_sign.sign(message)
     signature_b64 = base64.b64encode(signature).decode()
 
-    # 7. Ajouter la signature au message final
+    # 5. Ajouter la signature
     final_payload = dict(unsigned_payload)
     final_payload["signature"] = signature_b64
 

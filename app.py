@@ -42,17 +42,24 @@ def create_user_page():
 @app.route("/reset_password", methods=["GET", "POST"])
 def reset_password_page():
     if request.method == "POST":
-        username = request.form.get("old_password")
+        username = request.form.get("username")
         old_password = request.form.get("old_password")
         new_password = request.form.get("new_password")
 
         payload = json.dumps({"action": "get_user_all_data", "username": username})
         rep = send_payload(payload)
+        response = "Cannot retreive your private keys, your old password is not accurate"
 
-        get_keys_from_password(username, old_password, rep)
+        is_key_retreived = True
+        try:
+            is_key_retreived = get_keys_from_password(username, old_password, rep)
+        except FileNotFoundError:
+            return render_template("response.html", response="Unable to reconstruct your private keys. Incorrect password. Password update failed.")
 
-        payload = reset_password(new_password, username)
-        response = send_payload(payload)
+        if is_key_retreived:
+            payload = reset_password(new_password, username)
+            response = send_payload(payload)
+        
         return render_template("response.html", response=response)
 
     return render_template("reset_password.html")

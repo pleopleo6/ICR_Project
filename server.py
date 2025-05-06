@@ -4,7 +4,8 @@ import json
 from database import (
     create_user,
     get_user_all_data,
-    verify_signature
+    verify_signature,
+    reset_password
 )
 
 def handle_client_request(data):
@@ -23,10 +24,33 @@ def handle_client_request(data):
                 encrypted_enc_key=request["Encrypted_enc_key"]
             )
         elif action == "reset_password":
-            # TODO: Implement password reset logic
-            result = {"status": "error", "message": request}
-        elif action == "retrieve_keys":
-            result = {"status": "error", "message": "Key retrieval not implemented yet."}
+            try:
+                username = request["username"]
+                signature_b64 = request["signature"]
+
+                # Préparer le message original (sans signature) pour vérification
+                unsigned_payload = dict(request)
+                unsigned_payload.pop("signature")
+
+                canonical_message = json.dumps(unsigned_payload, sort_keys=True)
+
+                # Vérifier la signature avec la clé publique stockée
+                is_valid, msg = verify_signature(username, canonical_message, signature_b64)
+                if not is_valid:
+                    result = {"status": "error", "message": f"Signature verification failed: {msg}"}
+                else:
+                    print("Signature verified correctly")
+                    # Appliquer les changements (nouvelles données)
+                    ok = reset_password(
+                        username=username,
+                        salt_argon2=request["salt_argon2"],
+                        salt_hkdf=request["salt_hkdf"],
+                        Encrypted_sign_key=request["Encrypted_sign_key"],
+                        Encrypted_enc_key=request["Encrypted_enc_key"]
+                    )
+                    result = {"status": "success" if ok else "error", "message": "Password reset" if ok else "Failed to update user"}
+            except Exception as e:
+                result = {"status": "error", "message": f"Exception: {str(e)}"}
         elif action == "send_message":
             # TODO: Implement secure messaging
             result = {"status": "success", "echo": request.get("message", "")}
@@ -46,7 +70,6 @@ def handle_client_request(data):
         result = {"status": "error", "message": f"Server error: {str(e)}"}
 
     return json.dumps(result).encode()
-
 
 def run_server():
     host = 'localhost'

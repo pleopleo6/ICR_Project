@@ -75,3 +75,25 @@ def verify_signature(username, message: str, signature_b64: str):
         return True, "Signature valid"
     except (InvalidSignature, ValueError) as e:
         return False, f"Invalid signature: {e}"
+    
+def reset_password(username, salt_argon2, salt_hkdf, Encrypted_sign_key, Encrypted_enc_key):
+    try:
+        db = load_database()
+
+        if username not in db:
+            return False
+
+        # Only update the fields related to password reset
+        db[username]["salt_argon2"] = salt_argon2
+        db[username]["salt_hkdf"] = salt_hkdf
+        db[username]["Encrypted_sign_key"] = Encrypted_sign_key
+        db[username]["Encrypted_enc_key"] = Encrypted_enc_key
+
+        with open("database.json", "w") as f:
+            json.dump(db, f, indent=4)
+
+        return True
+
+    except Exception as e:
+        print(f"Error updating database: {e}")
+        return False
