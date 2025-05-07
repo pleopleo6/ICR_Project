@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Retrieve Messages</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 800px;
+        }
+        h2 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 1.5rem;
+        }
+        .message-list {
+            margin-bottom: 2rem;
+        }
+        .message {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        .message-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+            color: #666;
+            font-size: 0.9rem;
+        }
+        .message-content {
+            color: #333;
+            white-space: pre-wrap;
+        }
+        .no-messages {
+            text-align: center;
+            color: #666;
+            padding: 2rem;
+        }
+        .back-link {
+            display: block;
+            text-align: center;
+            margin-top: 1rem;
+            color: #666;
+            text-decoration: none;
+        }
+        .back-link:hover {
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Your Messages</h2>
+        <div class="message-list">
+            {% if messages %}
+                {% for message in messages %}
+                <div class="message">
+                    <div class="message-header">
+                        <span>From: {{ message.sender }}</span>
+                        <span>{{ message.timestamp }}</span>
+                    </div>
+                    <div class="message-content">{{ message.content }}</div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="no-messages">No messages to display</div>
+            {% endif %}
+        </div>
+        <a href="/" class="back-link">← Back to Dashboard</a>
+    </div>
+</body>
+</html> 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Login</title>
+    <title>Send Message</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -11,15 +11,15 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            height: 100vh;
+            min-height: 100vh;
         }
-        .login-container {
+        .container {
             background-color: white;
             padding: 2rem;
             border-radius: 8px;
             box-shadow: 0 0 10px rgba(0,0,0,0.1);
             width: 100%;
-            max-width: 400px;
+            max-width: 600px;
         }
         h2 {
             text-align: center;
@@ -34,12 +34,16 @@
             margin-bottom: 0.5rem;
             color: #555;
         }
-        input {
+        input, textarea {
             width: 100%;
             padding: 0.5rem;
             border: 1px solid #ddd;
             border-radius: 4px;
             box-sizing: border-box;
+        }
+        textarea {
+            min-height: 150px;
+            resize: vertical;
         }
         button {
             width: 100%;
@@ -54,41 +58,41 @@
         button:hover {
             background-color: #0056b3;
         }
-        .error-message {
-            color: #dc3545;
+        .success-message {
+            color: #28a745;
             margin-bottom: 1rem;
             text-align: center;
         }
-        .register-link {
+        .back-link {
             display: block;
             text-align: center;
             margin-top: 1rem;
             color: #666;
             text-decoration: none;
         }
-        .register-link:hover {
+        .back-link:hover {
             color: #333;
         }
     </style>
 </head>
 <body>
-    <div class="login-container">
-        <h2>Login</h2>
-        {% if error %}
-        <div class="error-message">{{ error }}</div>
+    <div class="container">
+        <h2>Send Message</h2>
+        {% if success %}
+        <div class="success-message">{{ success }}</div>
         {% endif %}
         <form method="post">
             <div class="form-group">
-                <label for="username">Username</label>
-                <input type="text" id="username" name="username" required>
+                <label for="recipient">Recipient Username</label>
+                <input type="text" id="recipient" name="recipient" required>
             </div>
             <div class="form-group">
-                <label for="password">Password</label>
-                <input type="password" id="password" name="password" required>
+                <label for="message">Message</label>
+                <textarea id="message" name="message" required></textarea>
             </div>
-            <button type="submit">Login</button>
+            <button type="submit">Send Message</button>
         </form>
-        <a href="/create_user" class="register-link">Create new account</a>
+        <a href="/" class="back-link">← Back to Dashboard</a>
     </div>
 </body>
-</html>
+</html> 

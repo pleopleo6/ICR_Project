@@ -1,13 +1,127 @@
 <!DOCTYPE html>
 <html>
-<head><title>Create User</title></head>
+<head>
+    <title>Create Account</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 400px;
+        }
+        h2 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 1.5rem;
+        }
+        .form-group {
+            margin-bottom: 1rem;
+        }
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #555;
+        }
+        input {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            width: 100%;
+            padding: 0.75rem;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: background-color 0.2s;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .error-message {
+            color: #dc3545;
+            margin-bottom: 1rem;
+            text-align: center;
+        }
+        .success-message {
+            color: #28a745;
+            margin-bottom: 1rem;
+            text-align: center;
+        }
+        .login-link {
+            display: block;
+            text-align: center;
+            margin-top: 1rem;
+            color: #666;
+            text-decoration: none;
+        }
+        .login-link:hover {
+            color: #333;
+        }
+        .password-requirements {
+            font-size: 0.85rem;
+            color: #666;
+            margin-top: 0.5rem;
+            padding: 0.5rem;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+        .password-requirements ul {
+            margin: 0.5rem 0;
+            padding-left: 1.5rem;
+        }
+        .password-requirements li {
+            margin-bottom: 0.25rem;
+        }
+    </style>
+</head>
 <body>
-  <h2>Create a New User</h2>
-  <form method="post">
-    Username: <input type="text" name="username"><br><br>
-    Password: <input type="password" name="password"><br><br>
-    <button type="submit">Create</button>
-  </form>
-  <a href="/">Back</a>
+    <div class="container">
+        <h2>Create Account</h2>
+        {% if error %}
+        <div class="error-message">{{ error }}</div>
+        {% endif %}
+        {% if success %}
+        <div class="success-message">{{ success }}</div>
+        {% endif %}
+        <form method="post">
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" required>
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required>
+                <div class="password-requirements">
+                    <strong>Password Requirements:</strong>
+                    <ul>
+                        <li>At least 8 characters long</li>
+                        <li>Include uppercase and lowercase letters</li>
+                        <li>Include at least one number</li>
+                        <li>Include at least one special character</li>
+                    </ul>
+                </div>
+            </div>
+            <button type="submit">Create Account</button>
+        </form>
+        <a href="/login" class="login-link">Already have an account? Login here</a>
+    </div>
 </body>
 </html>
