@@ -1,11 +1,35 @@
-from flask import Flask, render_template, request, redirect, url_for, session
+from flask import Flask, render_template, request, redirect, url_for, session, flash
 import json
 from client import create_user, reset_password, get_keys_from_password
 import socket
 import ssl
+from datetime import timedelta
+from functools import wraps
 
 app = Flask(__name__)
-app.secret_key = 'votre_cle_secrete'  # Nécessaire pour les sessions
+# Note: Dans un environnement de production, il serait préférable de :
+# 1. Séparer la configuration dans un fichier config.py
+# 2. Utiliser des variables d'environnement pour les secrets
+# 3. Implémenter une gestion de session plus robuste avec Redis ou une base de données
+# 4. Ajouter des middlewares de sécurité supplémentaires
+# Ceci est un POC avec une sécurité basique (niveau web design)
+app.secret_key = 'votre_cle_secrete'  # À remplacer par une vraie clé secrète en production
+
+# Configuration de base pour la session
+app.config['SESSION_COOKIE_HTTPONLY'] = True  # Empêche l'accès aux cookies via JavaScript
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # Protection contre les attaques CSRF
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=1)  # Session expire après 15 minutes
+
+# En production, activer ces options :
+# app.config['SESSION_COOKIE_SECURE'] = True  # Force l'utilisation de HTTPS pour les cookies
+
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'username' not in session:
+            return redirect(url_for('login', error="Your session has expired. Please login again."))
+        return f(*args, **kwargs)
+    return decorated_function
 
 def send_payload(payload):
     host = 'localhost'
@@ -27,9 +51,8 @@ def send_payload(payload):
         return f"Error: {e}"
 
 @app.route("/", methods=["GET"])
+@login_required
 def index():
-    if 'username' not in session:
-        return redirect(url_for('login'))
     return render_template("dashboard.html", username=session['username'])
 
 @app.route("/login", methods=["GET", "POST"])
@@ -59,7 +82,8 @@ def login():
         except Exception as e:
             return render_template("login.html", error="Invalid username or password")
 
-    return render_template("login.html")
+    error = request.args.get('error')
+    return render_template("login.html", error=error)
 
 @app.route("/logout")
 def logout():
@@ -86,10 +110,8 @@ def create_user_page():
     return render_template("create_user.html")
 
 @app.route("/change_password", methods=["GET", "POST"])
+@login_required
 def change_password():
-    if 'username' not in session:
-        return redirect(url_for('login'))
-    
     if request.method == "POST":
         old_password = request.form.get("old_password")
         new_password = request.form.get("new_password")
@@ -114,10 +136,8 @@ def change_password():
     return render_template("change_password.html")
 
 @app.route("/send_message", methods=["GET", "POST"])
+@login_required
 def send_message():
-    if 'username' not in session:
-        return redirect(url_for('login'))
-    
     if request.method == "POST":
         recipient = request.form.get("recipient")
         message = request.form.get("message")
@@ -129,6 +149,8 @@ def send_message():
             "message": message,
             "unlock_date": unlock_date
         })
+        
+        # TODO: Implémenter l'envoie des messages
         
         response = send_payload(payload)
         try:
@@ -143,10 +165,8 @@ def send_message():
     return render_template("send_message.html")
 
 @app.route("/retrieve_messages", methods=["GET"])
+@login_required
 def retrieve_messages():
-    if 'username' not in session:
-        return redirect(url_for('login'))
-    
     # TODO: Implémenter la récupération des messages
     return render_template("retrieve_messages.html")
 
