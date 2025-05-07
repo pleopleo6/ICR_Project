@@ -18,7 +18,7 @@ app.secret_key = 'votre_cle_secrete'  # À remplacer par une vraie clé secrète
 # Configuration de base pour la session
 app.config['SESSION_COOKIE_HTTPONLY'] = True  # Empêche l'accès aux cookies via JavaScript
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # Protection contre les attaques CSRF
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=1)  # Session expire après 15 minutes
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=15)  # Session expire après 15 minutes
 
 # En production, activer ces options :
 # app.config['SESSION_COOKIE_SECURE'] = True  # Force l'utilisation de HTTPS pour les cookies
@@ -140,13 +140,25 @@ def change_password():
 def send_message():
     if request.method == "POST":
         recipient = request.form.get("recipient")
-        message = request.form.get("message")
+        message_type = request.form.get("message_type")
         unlock_date = request.form.get("unlock_date")
+        
+        if message_type == "text":
+            message = request.form.get("message")
+            if not message:
+                return render_template("send_message.html", error="Please enter a message")
+            content = message
+        else:  # file
+            file = request.files.get("file")
+            if not file:
+                return render_template("send_message.html", error="Please select a file")
+            content = file.read().decode('utf-8', errors='ignore')
         
         payload = json.dumps({
             "action": "send_message",
             "recipient": recipient,
-            "message": message,
+            "message": content,
+            "message_type": message_type,
             "unlock_date": unlock_date
         })
         

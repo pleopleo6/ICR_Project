@@ -73,6 +73,18 @@
         .back-link:hover {
             color: #333;
         }
+        .radio-group {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 10px;
+        }
+        .radio-group input[type="radio"] {
+            width: auto;
+            margin-right: 5px;
+        }
+        .radio-group label {
+            display: inline;
+        }
     </style>
 </head>
 <body>
@@ -81,14 +93,27 @@
         {% if success %}
         <div class="success-message">{{ success }}</div>
         {% endif %}
-        <form method="post">
+        <form method="post" enctype="multipart/form-data">
             <div class="form-group">
                 <label for="recipient">Recipient Username</label>
                 <input type="text" id="recipient" name="recipient" required>
             </div>
             <div class="form-group">
+                <label>Message Type</label>
+                <div class="radio-group">
+                    <input type="radio" id="text_message" name="message_type" value="text" checked onchange="toggleMessageType()">
+                    <label for="text_message">Text Message</label>
+                    <input type="radio" id="file_message" name="message_type" value="file" onchange="toggleMessageType()">
+                    <label for="file_message">File</label>
+                </div>
+            </div>
+            <div class="form-group" id="text_message_group">
                 <label for="message">Message</label>
-                <textarea id="message" name="message" required></textarea>
+                <textarea id="message" name="message"></textarea>
+            </div>
+            <div class="form-group" id="file_message_group" style="display: none;">
+                <label for="file">File</label>
+                <input type="file" id="file" name="file">
             </div>
             <div class="form-group">
                 <label for="unlock_date">Unlock Date (DD:MM:YYYY:HH:MM:SS)</label>
@@ -98,5 +123,24 @@
         </form>
         <a href="/" class="back-link">← Back to Dashboard</a>
     </div>
+    <script>
+        function toggleMessageType() {
+            const textMessage = document.getElementById('text_message');
+            const textGroup = document.getElementById('text_message_group');
+            const fileGroup = document.getElementById('file_message_group');
+            
+            if (textMessage.checked) {
+                textGroup.style.display = 'block';
+                fileGroup.style.display = 'none';
+                document.getElementById('message').required = true;
+                document.getElementById('file').required = false;
+            } else {
+                textGroup.style.display = 'none';
+                fileGroup.style.display = 'block';
+                document.getElementById('message').required = false;
+                document.getElementById('file').required = true;
+            }
+        }
+    </script>
 </body>
 </html> 
