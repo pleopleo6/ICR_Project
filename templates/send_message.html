@@ -90,6 +90,10 @@
                 <label for="message">Message</label>
                 <textarea id="message" name="message" required></textarea>
             </div>
+            <div class="form-group">
+                <label for="unlock_date">Unlock Date (DD:MM:YYYY:HH:MM:SS)</label>
+                <input type="text" id="unlock_date" name="unlock_date" pattern="\d{2}:\d{2}:\d{4}:\d{2}:\d{2}:\d{2}" placeholder="DD:MM:YYYY:HH:MM:SS" required>
+            </div>
             <button type="submit">Send Message</button>
         </form>
         <a href="/" class="back-link">← Back to Dashboard</a>

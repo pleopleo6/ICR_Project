@@ -41,6 +41,14 @@ def login():
         payload = json.dumps({"action": "get_user_all_data", "username": username})
         rep = send_payload(payload)
 
+        # Vérifier si l'utilisateur existe
+        try:
+            rep_json = json.loads(rep)
+            if "status" in rep_json and rep_json["status"] == "error":
+                return render_template("login.html", error="Invalid username or password")
+        except json.JSONDecodeError:
+            return render_template("login.html", error="Invalid username or password")
+
         try:
             response = get_keys_from_password(username, password, rep)
             if response:  # Si les clés ont été récupérées avec succès
@@ -57,6 +65,25 @@ def login():
 def logout():
     session.pop('username', None)
     return redirect(url_for('login'))
+
+@app.route("/create_user", methods=["GET", "POST"])
+def create_user_page():
+    if request.method == "POST":
+        username = request.form.get("username")
+        password = request.form.get("password")
+        
+        if not username or not password:
+            return render_template("create_user.html", error="Please fill in all fields")
+        
+        payload = create_user(username, password)
+        response = send_payload(payload)
+        
+        if "Error" in response:
+            return render_template("create_user.html", error=response)
+        else:
+            return render_template("create_user.html", success="Account created successfully! You can now login.")
+            
+    return render_template("create_user.html")
 
 @app.route("/change_password", methods=["GET", "POST"])
 def change_password():
@@ -94,8 +121,24 @@ def send_message():
     if request.method == "POST":
         recipient = request.form.get("recipient")
         message = request.form.get("message")
-        # TODO: Implémenter l'envoi de message
-        return render_template("send_message.html", success="Message sent successfully")
+        unlock_date = request.form.get("unlock_date")
+        
+        payload = json.dumps({
+            "action": "send_message",
+            "recipient": recipient,
+            "message": message,
+            "unlock_date": unlock_date
+        })
+        
+        response = send_payload(payload)
+        try:
+            response_json = json.loads(response)
+            if response_json.get("status") == "success":
+                return render_template("send_message.html", success="Message sent successfully")
+            else:
+                return render_template("send_message.html", error=response_json.get("message", "Failed to send message"))
+        except json.JSONDecodeError:
+            return render_template("send_message.html", error="Failed to send message")
     
     return render_template("send_message.html")
 
@@ -106,70 +149,6 @@ def retrieve_messages():
     
     # TODO: Implémenter la récupération des messages
     return render_template("retrieve_messages.html")
-
-@app.route("/create_user", methods=["GET", "POST"])
-def create_user_page():
-    if request.method == "POST":
-        username = request.form.get("username")
-        password = request.form.get("password")
-        
-        if not username or not password:
-            return render_template("create_user.html", error="Please fill in all fields")
-        
-        payload = create_user(username, password)
-        response = send_payload(payload)
-        
-        if "Error" in response:
-            return render_template("create_user.html", error=response)
-        else:
-            return render_template("create_user.html", success="Account created successfully! You can now login.")
-            
-    return render_template("create_user.html")
-
-@app.route("/reset_password", methods=["GET", "POST"])
-def reset_password_page():
-    if request.method == "POST":
-        username = request.form.get("username")
-        old_password = request.form.get("old_password")
-        new_password = request.form.get("new_password")
-
-        payload = json.dumps({"action": "get_user_all_data", "username": username})
-        rep = send_payload(payload)
-        response = "Cannot retreive your private keys, your old password is not accurate"
-
-        is_key_retreived = True
-        try:
-            is_key_retreived = get_keys_from_password(username, old_password, rep)
-        except FileNotFoundError:
-            return render_template("response.html", response="Unable to reconstruct your private keys. Incorrect password. Password update failed.")
-
-        if is_key_retreived:
-            payload = reset_password(new_password, username)
-            response = send_payload(payload)
-        
-        return render_template("response.html", response=response)
-
-    return render_template("reset_password.html")
-
-@app.route("/retrieve_keys", methods=["GET", "POST"])
-def retrieve_keys_page():
-    if request.method == "POST":
-        username = request.form.get("username")
-        password = request.form.get("password")
-
-        payload = json.dumps({"action": "get_user_all_data", "username": username})
-        rep = send_payload(payload)
-
-        try:
-            response = get_keys_from_password(username, password, rep)
-            if response:  # Si les clés ont été récupérées avec succès
-                return redirect(url_for('index'))
-            else:
-                return render_template("response.html", response="Invalid username or password")
-        except Exception as e:
-            return render_template("response.html", response="Invalid username or password")
-
-    return render_template("retrieve_keys.html")
 
 if __name__ == "__main__":
     app.run(debug=True, port=5050)
