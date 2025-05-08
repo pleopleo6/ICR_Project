@@ -19,7 +19,7 @@ def load_database():
 def get_user_all_data(username):
     db = load_database()
     if username in db:
-        return {"status": "success", "user": {username: db[username]}}
+        return db[username]  # Return the user data directly
     else:
         return {"status": "error", "message": "User not found"}
 

@@ -1,6 +1,7 @@
 import socket
 import ssl
 import json
+import os
 from database import (
     create_user,
     get_user_all_data,
@@ -53,8 +54,10 @@ def handle_client_request(data):
             except Exception as e:
                 result = {"status": "error", "message": f"Exception: {str(e)}"}
         elif action == "send_message":
-            # TODO: Implement secure messaging
-            result = {"status": "success", "echo": request.get("message", "")}
+            print("\n=== Message Request ===")
+            print(json.dumps(request, indent=2))
+            print("=====================\n")
+            result = {"status": "success", "message": "Message received"}
         elif action == "get_user_all_data":
             username = request.get("username")
             if not username:

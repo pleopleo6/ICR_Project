@@ -208,8 +208,46 @@ def reset_password(new_password, username):
 
     return json.dumps(final_payload)
 
+def send_message_payload(sender,recipient, content, message_type, unlock_date, Pubkey_recipient):
+    # 1. Générer une clé symétrique (ChaCha20)
+    k_msg = generate_symmetric_key()
 
-def send_message():
-    msg = input("Enter message to send: ")
+    # 2. Chiffrer le message avec cette clé
+    ciphertext, nonce = encrypt_message_symmetric(content.encode(), k_msg)
+
+    # 3. Chiffrer la clé avec la clé publique du destinataire
+    pubkey_recipient_bytes = base64.b64decode(Pubkey_recipient)
+    encrypted_k_msg = encrypt_key_asymmetric(k_msg, pubkey_recipient_bytes)
+
+    # 4. Construire le message D (non signé)
+    D = {
+        "ciphertext": base64.b64encode(ciphertext).decode(),
+        "nonce": base64.b64encode(nonce).decode(),
+        "encrypted_k_msg": base64.b64encode(encrypted_k_msg).decode(),
+        "unlock_date": unlock_date
+    }
+
+    # 5. Hacher D pour signature
+    hashed_D = hash_dict(D)  # → bytes
+
+    # 6. Charger la clé privée de signature du sender
+    sender_dir = Path(f"client_keys/{sender}")
+    priv_sign = load_private_key(sender_dir / "sign_key.pem")
+    if not isinstance(priv_sign, Ed25519PrivateKey):
+        raise ValueError("Sender private key must be Ed25519")
+
+    # 7. Signer le hash de D
+    signature = priv_sign.sign(hashed_D)
+    signature_b64 = base64.b64encode(signature).decode()
+
+    # 8. Créer le message final
+    msg = {
+        "from": sender,
+        "to": recipient,
+        "type": message_type,
+        "payload": D,
+        "signature": signature_b64
+    }
+
     return json.dumps({"action": "send_message", "message": msg})
 

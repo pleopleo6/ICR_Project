@@ -1,9 +1,9 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 import json
-from client import create_user, reset_password, get_keys_from_password
+from client import create_user, reset_password, get_keys_from_password, send_message_payload
 import socket
 import ssl
-from datetime import timedelta
+from datetime import timedelta, datetime
 from functools import wraps
 
 app = Flask(__name__)
@@ -143,6 +143,13 @@ def send_message():
         message_type = request.form.get("message_type")
         unlock_date = request.form.get("unlock_date")
         
+        # Convert the datetime-local input to our format
+        try:
+            unlock_datetime = datetime.fromisoformat(unlock_date.replace('Z', '+00:00'))
+            unlock_date = unlock_datetime.strftime("%d:%m:%Y:%H:%M:%S")
+        except ValueError:
+            return render_template("send_message.html", error="Invalid date format", now=datetime.now().strftime("%Y-%m-%dT%H:%M"))
+        
         if message_type == "text":
             message = request.form.get("message")
             if not message:
@@ -154,17 +161,29 @@ def send_message():
                 return render_template("send_message.html", error="Please select a file")
             content = file.read().decode('utf-8', errors='ignore')
         
-        payload = json.dumps({
-            "action": "send_message",
-            "recipient": recipient,
-            "message": content,
-            "message_type": message_type,
-            "unlock_date": unlock_date
-        })
-        
-        # TODO: Implémenter l'envoie des messages
-        
-        response = send_payload(payload)
+        payload = json.dumps({"action": "get_user_all_data", "username": recipient})
+        rep = send_payload(payload)
+
+        try:
+            rep_json = json.loads(rep)
+            if "status" in rep_json and rep_json["status"] == "error":
+                return render_template("send_message.html", error=f"Error getting recipient data: {rep_json.get('message', 'Unknown error')}")
+            
+            if "PubKey_enc" not in rep_json:
+                return render_template("send_message.html", error="Recipient's public key not found. User might not exist.")
+                
+            Pubkey_enc_recipient = rep_json["PubKey_enc"]
+        except json.JSONDecodeError:
+            return render_template("send_message.html", error="Invalid response from server")
+            
+        sender = session['username']
+
+        print("yo")
+        payload2 = send_message_payload(sender, recipient, content, message_type, unlock_date, Pubkey_enc_recipient)
+        print(payload2)
+
+        response = send_payload(payload2)
+        print(response)
         try:
             response_json = json.loads(response)
             if response_json.get("status") == "success":
@@ -174,7 +193,7 @@ def send_message():
         except json.JSONDecodeError:
             return render_template("send_message.html", error="Failed to send message")
     
-    return render_template("send_message.html")
+    return render_template("send_message.html", now=datetime.now().strftime("%Y-%m-%dT%H:%M"))
 
 @app.route("/retrieve_messages", methods=["GET"])
 @login_required

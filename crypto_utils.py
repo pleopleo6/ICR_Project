@@ -8,6 +8,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.asymmetric import ed25519, x25519
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+import json
 # flake8: noqa: E303
 
 def generate_salt(length=32):
@@ -60,52 +61,67 @@ def decrypt_private_key(encrypted_data: bytes, key: bytes) -> bytes:
     ciphertext = encrypted_data[12:]  # Rest is ciphertext+tag
     return aead.decrypt(nonce, ciphertext, associated_data=None)
 
-def print_and_compare_keys(username, priv_sign, priv_enc):
-    user_dir = Path(f"client_keys/{username}")
+def generate_symmetric_key(length: int = 32) -> bytes:
+    """
+    Generate a cryptographically secure random symmetric key.
+    Uses ChaCha20-Poly1305 which requires a 32-byte key.
+    """
+    return secrets.token_bytes(length)
 
-    def load_private_key(path):
-        with open(path, "rb") as f:
-            return serialization.load_pem_private_key(f.read(), password=None)
+def encrypt_message_symmetric(message: bytes, key: bytes) -> tuple[bytes, bytes]:
+    """
+    Encrypt a message using ChaCha20-Poly1305.
+    Returns (ciphertext, nonce) tuple.
+    """
+    aead = ChaCha20Poly1305(key)
+    nonce = generate_salt(12)  # ChaCha20-Poly1305 uses 12-byte nonce
+    ciphertext = aead.encrypt(nonce, message, associated_data=None)
+    return ciphertext, nonce
 
-    def load_public_key(path):
-        with open(path, "rb") as f:
-            return serialization.load_pem_public_key(f.read())
+def encrypt_key_asymmetric(key: bytes, recipient_public_key_bytes: bytes) -> bytes:
+    """
+    Encrypt a symmetric key using X25519 key exchange and ChaCha20-Poly1305.
+    This implements a secure hybrid encryption scheme.
+    """
+    # Convert the recipient's public key bytes to X25519PublicKey
+    recipient_public_key = x25519.X25519PublicKey.from_public_bytes(recipient_public_key_bytes)
+    
+    # Generate ephemeral key pair for this encryption
+    ephemeral_private_key = x25519.X25519PrivateKey.generate()
+    ephemeral_public_key = ephemeral_private_key.public_key()
+    
+    # Perform key exchange
+    shared_key = ephemeral_private_key.exchange(recipient_public_key)
+    
+    # Derive encryption key using HKDF
+    derived_key = HKDF(
+        algorithm=hashes.SHA3_256(),
+        length=32,
+        salt=b"",
+        info=b"key_encryption",
+        backend=default_backend()
+    ).derive(shared_key)
+    
+    # Encrypt the symmetric key
+    aead = ChaCha20Poly1305(derived_key)
+    nonce = generate_salt(12)
+    ciphertext = aead.encrypt(nonce, key, associated_data=None)
+    
+    # Return ephemeral public key + nonce + ciphertext
+    return ephemeral_public_key.public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw
+    ) + nonce + ciphertext
 
-    print("\n===== 🔍 COMPARAISON DES CLÉS =====")
-
-    # Recharger les clés locales
-    stored_priv_sign = load_private_key(user_dir / "sign_key.pem")
-    stored_priv_enc = load_private_key(user_dir / "enc_key.pem")
-    stored_pub_sign = load_public_key(user_dir / "sign_pub.pem")
-    stored_pub_enc = load_public_key(user_dir / "enc_pub.pem")
-
-    # Afficher et comparer les clés
-    def b64_raw(pub):
-        return base64.b64encode(pub.public_bytes(
-            encoding=serialization.Encoding.Raw,
-            format=serialization.PublicFormat.Raw
-        )).decode()
-
-    print("\n📤 Clé publique SIGN")
-    print(" - Déchiffrée :", b64_raw(priv_sign.public_key()))
-    print(" - Stockée    :", b64_raw(stored_priv_sign.public_key()))
-    print(" - Pub stockée:", b64_raw(stored_pub_sign))
-    assert priv_sign.public_key().public_bytes(
-        serialization.Encoding.Raw, serialization.PublicFormat.Raw
-    ) == stored_pub_sign.public_bytes(
-        serialization.Encoding.Raw, serialization.PublicFormat.Raw
-    ), "❌ Signature pubkey mismatch"
-    print(" ✅ Clés SIGN identiques")
-
-    print("\n📤 Clé publique ENC")
-    print(" - Déchiffrée :", b64_raw(priv_enc.public_key()))
-    print(" - Stockée    :", b64_raw(stored_priv_enc.public_key()))
-    print(" - Pub stockée:", b64_raw(stored_pub_enc))
-    assert priv_enc.public_key().public_bytes(
-        serialization.Encoding.Raw, serialization.PublicFormat.Raw
-    ) == stored_pub_enc.public_bytes(
-        serialization.Encoding.Raw, serialization.PublicFormat.Raw
-    ), "❌ Encryption pubkey mismatch"
-    print(" ✅ Clés ENC identiques")
-
-    print("\n✅ Toutes les clés sont identiques et cohérentes !")
+def hash_dict(d: dict) -> bytes:
+    """
+    Create a deterministic hash of a dictionary.
+    Uses SHA3-256 for cryptographic security.
+    """
+    # Convert dict to canonical JSON string
+    json_str = json.dumps(d, sort_keys=True, separators=(',', ':'))
+    
+    # Hash the JSON string
+    hasher = hashes.Hash(hashes.SHA3_256(), backend=default_backend())
+    hasher.update(json_str.encode())
+    return hasher.finalize()
