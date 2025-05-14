@@ -61,26 +61,44 @@ def login():
         username = request.form.get("username")
         password = request.form.get("password")
 
+        # Validate input
+        if not username or not password:
+            return render_template("login.html", error="Username and password are required")
+
         payload = json.dumps({"action": "get_user_all_data", "username": username})
         rep = send_payload(payload)
+        
+        print(f"Server response: {rep}")
 
         # Vérifier si l'utilisateur existe
         try:
             rep_json = json.loads(rep)
             if "status" in rep_json and rep_json["status"] == "error":
-                return render_template("login.html", error="Invalid username or password")
+                return render_template("login.html", error=f"Server error: {rep_json.get('message', 'Unknown error')}")
         except json.JSONDecodeError:
-            return render_template("login.html", error="Invalid username or password")
+            return render_template("login.html", error="Invalid server response format")
 
         try:
             response = get_keys_from_password(username, password, rep)
-            if response:  # Si les clés ont été récupérées avec succès
+            
+            # Print details for debugging
+            print(f"get_keys_from_password response: {response}")
+
+            # Properly check if response is True or a success string
+            if response is True:  # Si les clés ont été récupérées avec succès
                 session['username'] = username
                 return redirect(url_for('index'))
+            elif isinstance(response, str):
+                # Handle specific error messages
+                if response == "Mot de passe incorrect" or response == "Mot de passe incorrect ou erreur de déchiffrement":
+                    return render_template("login.html", error="Mot de passe incorrect")
+                else:
+                    return render_template("login.html", error=response)
             else:
                 return render_template("login.html", error="Invalid username or password")
         except Exception as e:
-            return render_template("login.html", error="Invalid username or password")
+            print(f"Login error: {str(e)}")
+            return render_template("login.html", error=f"Error: {str(e)}")
 
     error = request.args.get('error')
     return render_template("login.html", error=error)
@@ -163,13 +181,17 @@ def send_message():
         
         payload = json.dumps({"action": "get_user_all_data", "username": recipient})
         rep = send_payload(payload)
+        
+        print(f"Server response for recipient: {rep}")
 
         try:
             rep_json = json.loads(rep)
             if "status" in rep_json and rep_json["status"] == "error":
                 return render_template("send_message.html", error=f"Error getting recipient data: {rep_json.get('message', 'Unknown error')}")
             
+            # The structure of the server response should match what we expect
             if "PubKey_enc" not in rep_json:
+                print(f"Missing PubKey_enc in server response: {rep_json}")
                 return render_template("send_message.html", error="Recipient's public key not found. User might not exist.")
                 
             Pubkey_enc_recipient = rep_json["PubKey_enc"]
@@ -178,7 +200,6 @@ def send_message():
             
         sender = session['username']
 
-        print("yo")
         payload2 = send_message_payload(sender, recipient, content, message_type, unlock_date, Pubkey_enc_recipient)
         print(payload2)
 

@@ -13,15 +13,22 @@ from crypto_utils import (
     generate_ed25519_keypair,
     generate_x25519_keypair,
     encrypt_private_key,
-    decrypt_private_key
+    decrypt_private_key,
+    generate_symmetric_key,
+    encrypt_message_symmetric,
+    encrypt_key_asymmetric,
+    hash_dict
 )
 
+# Ensure client_keys directory exists
+Path("client_keys").mkdir(exist_ok=True)
 
 def load_private_key(path):
     with open(path, "rb") as f:
         return serialization.load_pem_private_key(f.read(), password=None)
 
 def save_keys(username, priv_sign, pub_sign, priv_enc, pub_enc):    
+    ret = False
     user_dir = Path(f"client_keys/{username}")
     user_dir.mkdir(parents=True, exist_ok=True)
 
@@ -50,51 +57,87 @@ def save_keys(username, priv_sign, pub_sign, priv_enc, pub_enc):
             encoding=serialization.Encoding.PEM,
             format=serialization.PublicFormat.SubjectPublicKeyInfo
         ))
+    
+    ret = True
+    return ret  
 
 def get_keys_from_password(username, password, response_json):
     # response_json → dictionnary
     if isinstance(response_json, str):  
         response_json = json.loads(response_json)
 
-    if response_json.get("status") != "success":
+    if response_json.get("status") == "error":
         return f"Server error: {response_json.get('message')}"
 
-    user_data = response_json["user"].get(username)
-    if not user_data:
-        return "No user data found in server response"
-
-    # Step 1: Base64 decode salts
-    salt_argon2 = base64.b64decode(user_data["salt_argon2"])
-    salt_hkdf = base64.b64decode(user_data["salt_hkdf"])
-
-    # Step 2: Regenerate derived key from password
-    hashed = hash_password_argon2id(password, salt_argon2)
-    derived_key = derive_encryption_key(hashed, salt_hkdf, length=32)
-
-    # Step 3: Decrypt private keys
-    encrypted_sign_key = base64.b64decode(user_data["Encrypted_sign_key"])
-    encrypted_enc_key = base64.b64decode(user_data["Encrypted_enc_key"])
+    # The server returns the user data directly, not nested under a "user" key
+    # Check if the expected fields are in the response
+    required_fields = ["salt_argon2", "salt_hkdf", "Encrypted_sign_key", "Encrypted_enc_key", "PubKey_sign", "PubKey_enc"]
+    if not all(key in response_json for key in required_fields):
+        print(f"Server response: {response_json}")
+        return "Required fields missing in server response"
 
     try:
-        # Decrypt signing key
-        priv_sign_bytes = decrypt_private_key(encrypted_sign_key, derived_key)
-        priv_sign = Ed25519PrivateKey.from_private_bytes(priv_sign_bytes)
-        
-        # Decrypt encryption key
-        priv_enc_bytes = decrypt_private_key(encrypted_enc_key, derived_key)
-        priv_enc = X25519PrivateKey.from_private_bytes(priv_enc_bytes)
+        # Step 1: Base64 decode salts
+        salt_argon2 = base64.b64decode(response_json["salt_argon2"])
+        salt_hkdf = base64.b64decode(response_json["salt_hkdf"])
 
-        # Get public keys from private
-        pub_sign = priv_sign.public_key()
-        pub_enc = priv_enc.public_key()
+        # Step 2: Regenerate derived key from password
+        hashed = hash_password_argon2id(password, salt_argon2)
+        derived_key = derive_encryption_key(hashed, salt_hkdf, length=32)
 
-        # Save locally
-        save_keys(username, priv_sign, pub_sign, priv_enc, pub_enc)
+        # Step 3: Decrypt private keys
+        encrypted_sign_key = base64.b64decode(response_json["Encrypted_sign_key"])
+        encrypted_enc_key = base64.b64decode(response_json["Encrypted_enc_key"])
 
-        return True
+        try:
+            # Decrypt signing key
+            priv_sign_bytes = decrypt_private_key(encrypted_sign_key, derived_key)
+            priv_sign = Ed25519PrivateKey.from_private_bytes(priv_sign_bytes)
+            
+            # Decrypt encryption key
+            priv_enc_bytes = decrypt_private_key(encrypted_enc_key, derived_key)
+            priv_enc = X25519PrivateKey.from_private_bytes(priv_enc_bytes)
 
-    except Exception as e:
-        return False
+            # Get public keys from private
+            pub_sign = priv_sign.public_key()
+            pub_enc = priv_enc.public_key()
+            
+            # Verify that derived public keys match those stored on server
+            # This confirms the password is correct
+            server_pub_sign = base64.b64decode(response_json["PubKey_sign"])
+            server_pub_enc = base64.b64decode(response_json["PubKey_enc"])
+            
+            # Convert our public keys to raw format for comparison
+            derived_pub_sign = pub_sign.public_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PublicFormat.Raw
+            )
+            
+            derived_pub_enc = pub_enc.public_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PublicFormat.Raw
+            )
+            
+            # Verify keys match
+            if derived_pub_sign != server_pub_sign or derived_pub_enc != server_pub_enc:
+                print("Public keys derived from password don't match server keys!")
+                print(f"Server sign key: {base64.b64encode(server_pub_sign).decode()}")
+                print(f"Derived sign key: {base64.b64encode(derived_pub_sign).decode()}")
+                return "Mot de passe incorrect"
+
+            # Save locally
+            ret = save_keys(username, priv_sign, pub_sign, priv_enc, pub_enc)
+
+            # Only return True if keys were successfully saved
+            return ret
+
+        except Exception as e:
+            print(f"Error decrypting keys: {str(e)}")
+            return "Mot de passe incorrect ou erreur de déchiffrement"
+    
+    except KeyError as e:
+        print(f"Missing key in server response: {e}")
+        return f"Server error: Missing data {e}"
 
 def create_user(username=None, password=None):
     if username is None:

@@ -9,7 +9,6 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.asymmetric import ed25519, x25519
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 import json
-# flake8: noqa: E303
 
 def generate_salt(length=32):
     return secrets.token_bytes(length)

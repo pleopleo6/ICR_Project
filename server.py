@@ -7,7 +7,7 @@ from database import (
     get_user_all_data,
     verify_signature,
     reset_password,
-    get_all_users #for get the list of user of the app
+    get_all_users # for get the list of user of the app
 )
 
 def handle_client_request(data):
