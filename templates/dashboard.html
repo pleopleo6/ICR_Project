@@ -68,14 +68,30 @@
         .feature-button {
             display: inline-block;
             padding: 0.75rem 1.5rem;
-            background-color: #007bff;
+            background-color: #17a2b8;
             color: white;
             text-decoration: none;
             border-radius: 4px;
             transition: background-color 0.2s;
         }
         .feature-button:hover {
-            background-color: #0056b3;
+            background-color: #138496;
+            opacity: 0.9;
+        }
+        .test-button {
+            display: inline-block;
+            margin-top: 10px;
+            padding: 0.5rem 1rem;
+            background-color: #6f42c1;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            transition: background-color 0.2s;
+        }
+        .test-button:hover {
+            background-color: #5a32a3;
+            opacity: 0.9;
         }
     </style>
 </head>
@@ -90,19 +106,28 @@
             <div class="feature-card">
                 <h3>Change Password</h3>
                 <p>Update your account password securely. This will re-encrypt your private keys with the new password.</p>
-                <a href="/change_password" class="feature-button">Change Password</a>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <a href="/change_password" class="feature-button">Change Password</a>
+                </div>
             </div>
             
             <div class="feature-card">
                 <h3>Send Message</h3>
                 <p>Send encrypted messages to other users. Your messages will be encrypted with the recipient's public key.</p>
-                <a href="/send_message" class="feature-button">Send Message</a>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <a href="/send_message" class="feature-button">Send Message</a>
+                </div>
             </div>
             
             <div class="feature-card">
-                <h3>Retrieve Messages</h3>
-                <p>View and decrypt your received messages. Messages are automatically decrypted using your private key.</p>
-                <a href="/retrieve_messages" class="feature-button">View Messages</a>
+                <h3>Messages</h3>
+                <p>View and decrypt your received messages. Access your messages from local storage.</p>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <a href="/view_local_messages" class="feature-button">Local Messages</a>
+                </div>
+                <div>
+                    <a href="/create_test_vdf_message" class="test-button">Créer un message VDF de test</a>
+                </div>
             </div>
         </div>
     </div>

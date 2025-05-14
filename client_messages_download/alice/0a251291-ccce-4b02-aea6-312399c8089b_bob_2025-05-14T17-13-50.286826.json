@@ -1,0 +1,20 @@
+{
+    "message_id": "0a251291-ccce-4b02-aea6-312399c8089b",
+    "from": "bob",
+    "to": "alice",
+    "type": "text",
+    "payload": {
+        "ciphertext": "kxVsUtYGLcuoMDIkYfQpnRAE",
+        "nonce": "dKc99X5dEkcV2Sux",
+        "encrypted_k_msg": "GnDdRf+5t6EsDF5QXSCJZpIMveXFrj+hifrXW9YjyGSrO+mnyMUWLFObOF5vXtFnYelpHTJO7aqwsDjUDiWkVNaCmgLNKTwZ3VOdlw5MRdMw24ocODLkRohBjfdDJL7S0tEX8bEGlRu5GjHa2w5Qw53JkFkHurnT",
+        "unlock_date": "14:05:2025:17:14:00",
+        "is_binary": false,
+        "vdf_challenge": {
+            "N": 10967535067,
+            "T": 50000,
+            "C": 1215616294
+        }
+    },
+    "signature": "e4/D7jv+Mx5oSa5a+fhhxd3K5XOxEsMsYC8xKPlykrGUYDP0hL0DDmKwiX1RCJdz92AWwaFzwaMjduEIYRuGBA==",
+    "timestamp": "2025-05-14T17:13:50.286826"
+}

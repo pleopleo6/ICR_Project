@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file
+from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file, jsonify
 from io import BytesIO
 import json
 from client import create_user, reset_password, get_keys_from_password, send_message_payload, decrypt_message
@@ -11,6 +11,7 @@ from pathlib import Path
 import uuid
 import base64
 import time
+from vdf_crypto import generate_challenge_key, encrypt_with_challenge_key, generate_time_lock_puzzle
 
 app = Flask(__name__)
 # Note: Dans un environnement de production, il serait préférable de :
@@ -268,19 +269,43 @@ def retrieve_messages():
     
     # Récupérer la liste des messages
     try:
-        # Charger les messages du fichier
-        messages_file = "messages.json"
-        if not os.path.exists(messages_file):
-            return render_template("retrieve_messages.html", error="Aucun message disponible")
+        # 1. Télécharger d'abord les messages depuis le serveur
+        request_data = {
+            "action": "get_messages",
+            "username": username
+        }
+        
+        server_response = send_payload(json.dumps(request_data))
+        server_data = json.loads(server_response)
+        
+        if server_data.get("status") != "success" or "messages" not in server_data:
+            # En cas d'erreur avec le serveur, essayer de lire les messages locaux
+            print(f"Erreur serveur: {server_data.get('message', 'Erreur inconnue')}")
             
-        with open(messages_file, 'r') as f:
-            messages_data = json.load(f)
+            # Charger les messages du fichier local
+            messages_file = "messages.json"
+            if not os.path.exists(messages_file):
+                return render_template("retrieve_messages.html", error="Aucun message disponible")
+                
+            with open(messages_file, 'r') as f:
+                messages_data = json.load(f)
+                
+            # Filtrer les messages pour le destinataire actuel
+            user_messages = []
+            for msg in messages_data.get("messages", []):
+                if msg.get("to") == username:
+                    user_messages.append(msg)
+        else:
+            # Utiliser les messages retournés par le serveur
+            user_messages = server_data["messages"]
             
-        # Filtrer les messages pour le destinataire actuel
-        user_messages = []
-        for msg in messages_data.get("messages", []):
-            if msg.get("to") == username:
-                user_messages.append(msg)
+            # Stocker les messages dans un dossier local pour les avoir disponibles hors-ligne
+            from client import download_messages
+            download_result = download_messages(username, server_response)
+            if download_result.get("status") == "success":
+                print(f"Messages téléchargés avec succès: {download_result.get('downloaded')} déchiffrés, {download_result.get('locked')} verrouillés")
+            else:
+                print(f"Erreur lors du téléchargement des messages: {download_result.get('message')}")
                 
         if not user_messages:
             return render_template("retrieve_messages.html", info="Vous n'avez pas de messages")
@@ -308,7 +333,6 @@ def retrieve_messages():
             
             if unlock_date_str:
                 try:
-                    from datetime import datetime
                     # Format du unlock_date: "14:05:2023:13:02:00" (jour:mois:année:heure:minute:seconde)
                     day, month, year, hour, minute, second = unlock_date_str.split(":")
                     unlock_datetime = datetime(int(year), int(month), int(day), 
@@ -319,7 +343,6 @@ def retrieve_messages():
                     
                     # Calcul du temps restant
                     if is_locked:
-                        from datetime import timedelta
                         time_diff = unlock_datetime - now
                         days = time_diff.days
                         hours, remainder = divmod(time_diff.seconds, 3600)
@@ -341,7 +364,10 @@ def retrieve_messages():
                 vdf_data = payload["vdf_challenge"]
                 vdf_info = {
                     "iterations": vdf_data.get("T", 0),
-                    "has_challenge": True
+                    "has_challenge": True,
+                    "N": vdf_data.get("N"),
+                    "T": vdf_data.get("T"),
+                    "C": vdf_data.get("C")
                 }
                 # Estimer le temps de résolution (approximatif)
                 if vdf_info["iterations"] > 0:
@@ -369,7 +395,6 @@ def retrieve_messages():
                         file_id = f"file_{msg.get('message_id', str(uuid.uuid4()))}"
                         
                         # Stocker le contenu binaire dans la session pour téléchargement ultérieur
-                        # Note: pour les gros fichiers, il serait préférable de les stocker temporairement sur disque
                         if 'files' not in session:
                             session['files'] = {}
                         
@@ -395,10 +420,17 @@ def retrieve_messages():
                     
                 except Exception as e:
                     content = f"Erreur de déchiffrement: {e}"
+                    if "vdf_challenge" in payload:
+                        content += "\n\nCe message nécessite la résolution du puzzle VDF pour être déchiffré."
             else:
+                # Message verrouillé par date
                 content = f"Message verrouillé jusqu'au {unlock_date_display}"
                 if time_remaining:
                     content += f"\nTemps restant: {time_remaining}"
+                    
+                # Indiquer si le message a également un puzzle VDF
+                if "vdf_challenge" in payload:
+                    content += "\n\nCe message contient également un puzzle VDF à résoudre."
             
             decoded_messages.append({
                 "id": msg.get("message_id", "ID inconnu"),
@@ -408,7 +440,8 @@ def retrieve_messages():
                 "is_locked": is_locked,
                 "unlock_date": unlock_date_display,
                 "time_remaining": time_remaining,
-                "vdf_info": vdf_info
+                "vdf_info": vdf_info,
+                "raw_data": json.dumps(msg)  # Stocker les données brutes du message pour la résolution locale du VDF
             })
             
         # Trier par date (plus récent en premier)
@@ -459,6 +492,488 @@ def download_file(file_id):
     except Exception as e:
         flash(f"Erreur lors du téléchargement: {str(e)}", "error")
         return redirect(url_for('retrieve_messages'))
+
+@app.route("/download_messages")
+@login_required
+def download_messages_route():
+    username = session['username']
+    
+    # Créer une requête au serveur pour obtenir les messages
+    request_data = {
+        "action": "get_messages",
+        "username": username
+    }
+    
+    # Envoyer la requête au serveur
+    try:
+        server_response = send_payload(json.dumps(request_data))
+        
+        # Appeler la fonction qui télécharge et déchiffre les messages
+        from client import download_messages
+        result = download_messages(username, server_response)
+        
+        if result.get("status") == "success":
+            flash(f"Téléchargement terminé: {result.get('downloaded')} messages déchiffrés, {result.get('locked')} messages verrouillés", "success")
+            return redirect(url_for("retrieve_messages"))
+        else:
+            flash(f"Erreur: {result.get('message')}", "error")
+            return redirect(url_for("retrieve_messages"))
+            
+    except Exception as e:
+        flash(f"Erreur lors du téléchargement des messages: {str(e)}", "error")
+        return redirect(url_for("retrieve_messages"))
+
+@app.route("/solve_vdf/<message_id>")
+@login_required
+def solve_vdf_route(message_id):
+    username = session['username']
+    
+    # D'abord, essayer d'obtenir la clé originale du serveur
+    request_data = {
+        "action": "get_original_key",
+        "username": username,
+        "message_id": message_id
+    }
+    
+    try:
+        # Envoyer la requête au serveur
+        server_response = send_payload(json.dumps(request_data))
+        
+        # Appeler la fonction qui résout le VDF
+        from client import solve_vdf_for_message
+        result = solve_vdf_for_message(username, message_id, server_response)
+        
+        if result.get("status") == "success":
+            if result.get("solved", False):
+                flash(f"VDF résolu avec succès pour le message {message_id}", "success")
+            else:
+                flash(f"Clé obtenue directement du serveur pour le message {message_id}", "success")
+            return redirect(url_for("retrieve_messages"))
+        else:
+            flash(f"Erreur: {result.get('message')}", "error")
+            return redirect(url_for("retrieve_messages"))
+            
+    except Exception as e:
+        flash(f"Erreur lors de la résolution du VDF: {str(e)}", "error")
+        return redirect(url_for("retrieve_messages"))
+
+@app.route("/solve_vdf_client/<message_id>", methods=["POST"])
+@login_required
+def solve_vdf_client_route(message_id):
+    username = session['username']
+    
+    # Déterminer si c'est une requête AJAX
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    
+    # Récupérer les données brutes du message depuis le formulaire
+    try:
+        message_data = request.form.get("message_data")
+        if not message_data:
+            if is_ajax:
+                return jsonify({"status": "error", "message": "Données du message manquantes"})
+            else:
+                flash("Données du message manquantes", "error")
+                return redirect(url_for("retrieve_messages"))
+            
+        # Convertir en objet JSON
+        message = json.loads(message_data)
+        
+        if message.get("message_id") != message_id:
+            if is_ajax:
+                return jsonify({"status": "error", "message": "ID de message incohérent"})
+            else:
+                flash("ID de message incohérent", "error")
+                return redirect(url_for("retrieve_messages"))
+
+        # Vérifier si le message est verrouillé par date
+        payload = message.get("payload", {})
+        unlock_date_str = payload.get("unlock_date")
+        is_locked_by_date = False
+        
+        if unlock_date_str:
+            try:
+                day, month, year, hour, minute, second = unlock_date_str.split(":")
+                unlock_datetime = datetime(int(year), int(month), int(day), 
+                                        int(hour), int(minute), int(second))
+                now = datetime.now()
+                is_locked_by_date = now < unlock_datetime
+                
+                # Afficher le statut de verrouillage
+                if is_locked_by_date:
+                    time_diff = unlock_datetime - now
+                    print(f"SÉCURITÉ: Message verrouillé jusqu'au {unlock_datetime.strftime('%d/%m/%Y %H:%M:%S')} (dans {time_diff})")
+            except Exception as e:
+                print(f"Erreur lors de l'analyse de la date de déverrouillage: {e}")
+        
+        # Vérifier si le message est protégé par VDF
+        vdf_challenge = payload.get("vdf_challenge")
+        if not vdf_challenge:
+            if is_ajax:
+                return jsonify({"status": "error", "message": "Message non protégé par VDF"})
+            else:
+                flash("Ce message n'est pas protégé par un puzzle VDF", "error")
+                return redirect(url_for("retrieve_messages"))
+        
+        # Si le message est encore verrouillé par date, s'assurer que les clés stockées ne sont pas utilisées
+        if is_locked_by_date:
+            # Modifier le chemin de résolution pour forcer la résolution du VDF
+            print("Forçage de la résolution VDF - Sécurité: date de déverrouillage non atteinte")
+            
+            # Supprimer temporairement les références à la clé stockée
+            original_message = message_data
+            
+            # Appeler la fonction qui résout le VDF sans utiliser de raccourcis
+            from client import solve_vdf_for_message_locally
+            result = solve_vdf_for_message_locally(username, message)
+        else:
+            # Date déverrouillée ou pas de date spécifiée - résolution normale
+            from client import solve_vdf_for_message_locally
+            result = solve_vdf_for_message_locally(username, message)
+        
+        if result.get("status") == "success":
+            # Vérifier si le message est toujours verrouillé temporellement
+            if result.get("still_time_locked", False):
+                unlock_date = result.get("unlock_date", "date inconnue")
+                message_text = f"Le VDF a été résolu, mais le message reste verrouillé par date jusqu'au {unlock_date}"
+                
+                if is_ajax:
+                    return jsonify({
+                        "status": "success",
+                        "message": message_text,
+                        "solved": True,
+                        "still_time_locked": True,
+                        "unlock_date": unlock_date,
+                        "saved_file": result.get("saved_file", "")
+                    })
+                else:
+                    flash(message_text, "info")
+                    return redirect(url_for("retrieve_messages"))
+            
+            # Essayer de déchiffrer le message pour l'afficher immédiatement
+            decrypted_content = None
+            try:
+                # La résolution du VDF a déjà été faite dans solve_vdf_for_message_locally
+                # et a retourné le contenu si le message n'était pas time-locked
+                if "updated_message" in result and not result.get("still_time_locked", False):
+                    updated_message = result.get("updated_message")
+                    
+                    # Si le contenu a déjà été déchiffré, l'utiliser
+                    if "content_file" in result:
+                        # Essayer de lire le contenu depuis le fichier déchiffré
+                        try:
+                            content_file = result.get("content_file")
+                            if content_file and os.path.exists(content_file):
+                                with open(content_file, 'r', encoding='utf-8') as f:
+                                    decrypted_content = f.read()
+                                    
+                                # Si le fichier est vide ou illisible en texte, c'est peut-être un fichier binaire
+                                if not decrypted_content:
+                                    message_type = message.get("type", "file")
+                                    decrypted_content = f"[Fichier {message_type} déchiffré]"
+                            else:
+                                message_type = message.get("type", "file")
+                                decrypted_content = f"[Fichier {message_type} déchiffré]"
+                        except:
+                            # Si erreur de lecture en texte, c'est probablement un fichier binaire
+                            message_type = message.get("type", "file")
+                            decrypted_content = f"[Fichier {message_type} déchiffré]"
+                    else:
+                        # Pas de contenu déchiffré disponible
+                        decrypted_content = "Message VDF résolu, actualisez la page pour voir le contenu"
+            except Exception as e:
+                print(f"Erreur lors du déchiffrement après résolution: {e}")
+                
+            if is_ajax:
+                response_data = {
+                    "status": "success",
+                    "message": "VDF résolu avec succès",
+                    "solved": True,
+                    "saved_file": result.get("saved_file", ""),
+                    "decrypted_content": decrypted_content
+                }
+                return jsonify(response_data)
+            else:
+                flash(f"VDF résolu avec succès pour le message {message_id}", "success")
+        else:
+            if is_ajax:
+                return jsonify(result)
+            else:
+                flash(f"Erreur: {result.get('message')}", "error")
+                
+        if not is_ajax:
+            return redirect(url_for("retrieve_messages"))
+        
+    except Exception as e:
+        error_message = f"Erreur lors de la résolution du VDF: {str(e)}"
+        if is_ajax:
+            return jsonify({"status": "error", "message": error_message})
+        else:
+            flash(error_message, "error")
+            return redirect(url_for("retrieve_messages"))
+
+@app.route("/view_local_messages", methods=["GET"])
+@login_required
+def view_local_messages():
+    username = session['username']
+    
+    try:
+        # Charger les messages depuis le dossier local
+        user_dir = Path(f"client_messages_download/{username}")
+        if not user_dir.exists():
+            return render_template("retrieve_messages.html", info="Aucun message téléchargé disponible")
+        
+        # Lire tous les fichiers JSON dans le dossier (messages bruts)
+        message_files = list(user_dir.glob("*.json"))
+        if not message_files:
+            return render_template("retrieve_messages.html", info="Aucun message téléchargé disponible")
+        
+        # Charger les messages
+        user_messages = []
+        for file_path in message_files:
+            if "_solved" in file_path.name or "_decrypted" in file_path.name:  # Ignorer les fichiers déjà traités
+                continue
+                
+            with open(file_path, 'r', encoding='utf-8') as f:
+                try:
+                    msg = json.load(f)
+                    if msg.get("to") == username:  # Vérifier que c'est bien destiné à cet utilisateur
+                        user_messages.append(msg)
+                except json.JSONDecodeError:
+                    print(f"Erreur de lecture du fichier {file_path}")
+                    continue
+        
+        if not user_messages:
+            return render_template("retrieve_messages.html", info="Aucun message disponible pour votre compte")
+            
+        # Charger la clé privée de chiffrement pour déchiffrer
+        user_dir = Path(f"client_keys/{username}")
+        try:
+            from cryptography.hazmat.primitives import serialization
+            with open(user_dir / "enc_key.pem", "rb") as f:
+                priv_enc = serialization.load_pem_private_key(f.read(), password=None)
+        except Exception as e:
+            return render_template("retrieve_messages.html", error=f"Erreur de chargement de clé: {e}")
+        
+        # Déchiffrer les messages
+        decoded_messages = []
+        vdf_messages_count = 0  # Compteur pour les messages VDF
+        
+        for msg in user_messages:
+            sender = msg.get("from", "Inconnu")
+            timestamp = msg.get("timestamp", "Date inconnue")
+            
+            # Vérifier si le message est encore verrouillé par date
+            unlock_date_str = msg.get("payload", {}).get("unlock_date")
+            is_locked = False
+            unlock_date_display = "Non spécifié"
+            time_remaining = None
+            
+            if unlock_date_str:
+                try:
+                    # Format du unlock_date: "14:05:2023:13:02:00" (jour:mois:année:heure:minute:seconde)
+                    day, month, year, hour, minute, second = unlock_date_str.split(":")
+                    unlock_datetime = datetime(int(year), int(month), int(day), 
+                                              int(hour), int(minute), int(second))
+                    now = datetime.now()
+                    is_locked = now < unlock_datetime
+                    unlock_date_display = unlock_datetime.strftime("%d/%m/%Y %H:%M:%S")
+                    
+                    # Calcul du temps restant
+                    if is_locked:
+                        time_diff = unlock_datetime - now
+                        days = time_diff.days
+                        hours, remainder = divmod(time_diff.seconds, 3600)
+                        minutes, seconds = divmod(remainder, 60)
+                        
+                        if days > 0:
+                            time_remaining = f"{days} jours, {hours} heures, {minutes} minutes"
+                        elif hours > 0:
+                            time_remaining = f"{hours} heures, {minutes} minutes, {seconds} secondes"
+                        else:
+                            time_remaining = f"{minutes} minutes, {seconds} secondes"
+                except Exception as e:
+                    print(f"Erreur de parsing de date: {e}")
+                    
+            # Extraire les informations du puzzle VDF si présentes
+            vdf_info = None
+            payload = msg.get("payload", {})
+            if "vdf_challenge" in payload:
+                vdf_data = payload["vdf_challenge"]
+                vdf_info = {
+                    "iterations": vdf_data.get("T", 0),
+                    "has_challenge": True,
+                    "N": vdf_data.get("N"),
+                    "T": vdf_data.get("T"),
+                    "C": vdf_data.get("C")
+                }
+                # Estimer le temps de résolution (approximatif)
+                if vdf_info["iterations"] > 0:
+                    estimated_seconds = min(vdf_info["iterations"] * 0.00001, 300)  # Estimation grossière
+                    if estimated_seconds < 60:
+                        vdf_info["estimated_time"] = f"environ {estimated_seconds:.1f} secondes"
+                    else:
+                        vdf_info["estimated_time"] = f"environ {estimated_seconds/60:.1f} minutes"
+                
+                # Incrémenter le compteur de messages VDF
+                vdf_messages_count += 1
+            
+            # Déchiffrer seulement si le message n'est pas verrouillé par date
+            if not is_locked:
+                try:
+                    content = decrypt_message(msg, priv_enc)
+                    
+                    # Déterminer si c'est un fichier binaire et comment l'afficher
+                    message_type = msg.get("type", "text")
+                    is_binary = msg.get("payload", {}).get("is_binary", False)
+                    
+                    if is_binary or message_type != "text":
+                        # Pour les fichiers binaires, indiquer qu'il s'agit d'un fichier à télécharger
+                        # On stockera le contenu binaire dans une session pour téléchargement ultérieur
+                        content_display = f"[Fichier {message_type}]"
+                        
+                        # Générer un ID unique pour ce fichier
+                        file_id = f"file_{msg.get('message_id', str(uuid.uuid4()))}"
+                        
+                        # Stocker le contenu binaire dans la session pour téléchargement ultérieur
+                        if 'files' not in session:
+                            session['files'] = {}
+                        
+                        # Pour la session, on doit encoder en base64
+                        if isinstance(content, bytes):
+                            session['files'][file_id] = base64.b64encode(content).decode('utf-8')
+                            content_type = "application/octet-stream"  # Type MIME par défaut
+                            
+                            # Essayer de détecter le type de fichier
+                            if content.startswith(b'\xFF\xD8\xFF'):  # Signature JPEG
+                                content_type = "image/jpeg"
+                            elif content.startswith(b'\x89PNG\r\n\x1A\n'):  # Signature PNG
+                                content_type = "image/png"
+                            elif content.startswith(b'GIF87a') or content.startswith(b'GIF89a'):  # Signature GIF
+                                content_type = "image/gif"
+                            elif content.startswith(b'%PDF'):  # Signature PDF
+                                content_type = "application/pdf"
+                                
+                            session['files_types'] = session.get('files_types', {})
+                            session['files_types'][file_id] = content_type
+                            
+                            content = content_display
+                
+                except Exception as e:
+                    content = f"Erreur de déchiffrement: {e}"
+                    if "vdf_challenge" in payload:
+                        content += "\n\nCe message nécessite la résolution du puzzle VDF pour être déchiffré."
+            else:
+                # Message verrouillé par date
+                content = f"Message verrouillé jusqu'au {unlock_date_display}"
+                if time_remaining:
+                    content += f"\nTemps restant: {time_remaining}"
+                    
+                # Indiquer si le message a également un puzzle VDF
+                if "vdf_challenge" in payload:
+                    content += "\n\nCe message contient également un puzzle VDF à résoudre."
+            
+            decoded_messages.append({
+                "id": msg.get("message_id", "ID inconnu"),
+                "sender": sender,
+                "timestamp": timestamp,
+                "content": content,
+                "is_locked": is_locked,
+                "unlock_date": unlock_date_display,
+                "time_remaining": time_remaining,
+                "vdf_info": vdf_info,
+                "raw_data": json.dumps(msg)  # Stocker les données brutes du message pour la résolution locale du VDF
+            })
+            
+        # Trier par date (plus récent en premier)
+        decoded_messages.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+        
+        # Déterminer si on doit lancer l'auto-résolution des VDFs
+        auto_resolve = "true" if vdf_messages_count > 0 else "false"
+        
+        # Ajouter le paramètre autosolve à l'URL
+        return render_template("retrieve_messages.html", messages=decoded_messages, offline_mode=True, autosolve=auto_resolve)
+        
+    except Exception as e:
+        return render_template("retrieve_messages.html", error=f"Erreur de récupération: {str(e)}")
+
+@app.route("/create_test_vdf_message")
+@login_required
+def create_test_vdf_message():
+    """Crée un message VDF de test pour voir l'interface de résolution"""
+    username = session['username']
+    
+    try:
+        # Assurer que le dossier existe
+        user_dir = Path(f"client_messages_download/{username}")
+        user_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Générer une clé de défi pour le test
+        from vdf_crypto import generate_challenge_key, encrypt_with_challenge_key, generate_time_lock_puzzle
+        
+        # Créer une clé fictive comme si c'était k_msg chiffré
+        fake_encrypted_k_msg = b"encrypted_key_message_example_1234567890abcdefghijklmnopqrstuvwxyz"
+        
+        # Générer une clé de défi comme le ferait le serveur
+        challenge_key = generate_challenge_key()
+        print(f"DEBUG Test - Clé de défi générée: {challenge_key.hex()[:16]}...")
+        
+        # Créer une date de déverrouillage dans le futur (10 minutes à partir de maintenant)
+        unlock_datetime = datetime.now() + timedelta(minutes=10)
+        unlock_date = unlock_datetime.strftime("%d:%m:%Y:%H:%M:%S")
+        
+        # Calculer la difficulté du VDF basée sur le temps de déverrouillage (comme dans send_message_payload)
+        time_diff = 600  # 10 minutes en secondes
+        vdf_seconds = min(time_diff / 120, 300)  # ~0.8% du temps total, max 5 min
+        
+        # Créer un time-lock puzzle pour la clé de défi
+        N, T, C = generate_time_lock_puzzle(challenge_key, vdf_seconds)
+        print(f"DEBUG Test - Puzzle généré: N={N}, T={T}, C={C}, temps prévu: {vdf_seconds} secondes")
+        
+        # Chiffrer la clé fictive avec la clé de défi
+        double_encrypted = encrypt_with_challenge_key(fake_encrypted_k_msg, challenge_key)
+        print(f"DEBUG Test - Taille du fake_encrypted_k_msg doublement chiffré: {len(double_encrypted)} octets")
+        
+        # Stocker la clé originale pour la récupérer plus tard
+        from vdf_crypto import store_original_encrypted_k_msg
+        message_id = f"test_vdf_{uuid.uuid4()}"
+        store_original_encrypted_k_msg(message_id, fake_encrypted_k_msg)
+        
+        # Créer un message de test qui ressemble exactement à un vrai message
+        test_message = {
+            "message_id": message_id,
+            "from": "system@testvdf",
+            "to": username,
+            "type": "text",
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "payload": {
+                "ciphertext": base64.b64encode(b"Message de test VDF - Le contenu sera visible apres resolution du VDF et quand la date de deverrouillage sera atteinte").decode('utf-8'),
+                "nonce": base64.b64encode(b"nonce123456789").decode('utf-8'),
+                "encrypted_k_msg": base64.b64encode(double_encrypted).decode('utf-8'),
+                "vdf_challenge": {
+                    "N": N,
+                    "T": T,
+                    "C": C,
+                    "unlock_delay_seconds": time_diff
+                },
+                "unlock_date": unlock_date
+            }
+        }
+        
+        # Sauvegarder le message de test
+        timestamp = test_message["timestamp"]
+        sender = test_message["from"]
+        timestamp_str = timestamp.replace(" ", "_").replace(":", "-")
+        filename = f"{message_id}_{sender}_{timestamp_str}.json"
+        
+        with open(user_dir / filename, "w", encoding="utf-8") as f:
+            json.dump(test_message, f, indent=4)
+            
+        flash(f"Message VDF de test créé avec succès - Déverrouillable à partir de {unlock_datetime.strftime('%H:%M:%S')}. Consultez vos messages locaux pour le voir.", "success")
+        return redirect(url_for('view_local_messages'))
+        
+    except Exception as e:
+        flash(f"Erreur lors de la création du message VDF de test: {e}", "error")
+        return redirect(url_for('index'))
 
 if __name__ == "__main__":
     app.run(debug=True, port=5050)
