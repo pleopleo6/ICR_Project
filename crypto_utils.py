@@ -124,3 +124,53 @@ def hash_dict(d: dict) -> bytes:
     hasher = hashes.Hash(hashes.SHA3_256(), backend=default_backend())
     hasher.update(json_str.encode())
     return hasher.finalize()
+
+def decrypt_key_asymmetric(encrypted_data, recipient_private_key):
+    """
+    Déchiffre une clé symétrique chiffrée avec X25519 et ChaCha20-Poly1305.
+    
+    Args:
+        encrypted_data (bytes): Clé symétrique chiffrée
+        recipient_private_key (X25519PrivateKey): Clé privée du destinataire
+        
+    Returns:
+        bytes: Clé symétrique déchiffrée
+    """
+    # Les 32 premiers octets sont la clé publique éphémère
+    ephemeral_pubkey_bytes = encrypted_data[:32]
+    nonce = encrypted_data[32:44]  # 12 octets pour le nonce
+    ciphertext = encrypted_data[44:]  # Le reste est le texte chiffré
+    
+    # Convertir en objet clé publique
+    ephemeral_public_key = x25519.X25519PublicKey.from_public_bytes(ephemeral_pubkey_bytes)
+    
+    # Effectuer l'échange de clés
+    shared_key = recipient_private_key.exchange(ephemeral_public_key)
+    
+    # Dériver la clé de chiffrement
+    derived_key = HKDF(
+        algorithm=hashes.SHA3_256(),
+        length=32,
+        salt=b"",
+        info=b"key_encryption",
+        backend=default_backend()
+    ).derive(shared_key)
+    
+    # Déchiffrer avec ChaCha20-Poly1305
+    aead = ChaCha20Poly1305(derived_key)
+    return aead.decrypt(nonce, ciphertext, associated_data=None)
+
+def decrypt_message_symmetric(ciphertext, nonce, key):
+    """
+    Déchiffre un message avec ChaCha20-Poly1305.
+    
+    Args:
+        ciphertext (bytes): Message chiffré
+        nonce (bytes): Nonce utilisé pour le chiffrement
+        key (bytes): Clé symétrique
+        
+    Returns:
+        bytes: Message déchiffré
+    """
+    aead = ChaCha20Poly1305(key)
+    return aead.decrypt(nonce, ciphertext, associated_data=None)

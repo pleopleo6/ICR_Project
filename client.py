@@ -19,6 +19,11 @@ from crypto_utils import (
     encrypt_key_asymmetric,
     hash_dict
 )
+from vdf_crypto import (
+    solve_time_lock_puzzle,
+    decrypt_with_challenge_key,
+    get_challenge_key
+)
 
 # Ensure client_keys directory exists
 Path("client_keys").mkdir(exist_ok=True)
@@ -251,12 +256,18 @@ def reset_password(new_password, username):
 
     return json.dumps(final_payload)
 
-def send_message_payload(sender,recipient, content, message_type, unlock_date, Pubkey_recipient):
+def send_message_payload(sender, recipient, content, message_type, unlock_date, Pubkey_recipient):
     # 1. Générer une clé symétrique (ChaCha20)
     k_msg = generate_symmetric_key()
 
     # 2. Chiffrer le message avec cette clé
-    ciphertext, nonce = encrypt_message_symmetric(content.encode(), k_msg)
+    # Encoder seulement si le contenu est déjà une chaîne (texte) et pas des bytes
+    if isinstance(content, str):
+        content_bytes = content.encode()
+    else:
+        content_bytes = content
+        
+    ciphertext, nonce = encrypt_message_symmetric(content_bytes, k_msg)
 
     # 3. Chiffrer la clé avec la clé publique du destinataire
     pubkey_recipient_bytes = base64.b64decode(Pubkey_recipient)
@@ -267,7 +278,8 @@ def send_message_payload(sender,recipient, content, message_type, unlock_date, P
         "ciphertext": base64.b64encode(ciphertext).decode(),
         "nonce": base64.b64encode(nonce).decode(),
         "encrypted_k_msg": base64.b64encode(encrypted_k_msg).decode(),
-        "unlock_date": unlock_date
+        "unlock_date": unlock_date,
+        "is_binary": not isinstance(content, str)  # Marquer si c'est un fichier binaire
     }
 
     # 5. Hacher D pour signature
@@ -293,4 +305,78 @@ def send_message_payload(sender,recipient, content, message_type, unlock_date, P
     }
 
     return json.dumps({"action": "send_message", "message": msg})
+
+def decrypt_message(message, recipient_private_key):
+    """
+    Déchiffre un message reçu.
+    
+    Args:
+        message (dict): Le message à déchiffrer
+        recipient_private_key (X25519PrivateKey): La clé privée du destinataire
+    
+    Returns:
+        Union[str, bytes]: Le contenu déchiffré (texte ou binaire)
+    """
+    try:
+        # Extraire les données du payload
+        payload = message.get("payload", {})
+        message_id = message.get("message_id")
+        
+        if not payload:
+            return "Erreur: payload vide"
+            
+        encrypted_k_msg_b64 = payload.get("encrypted_k_msg")
+        nonce_b64 = payload.get("nonce")
+        ciphertext_b64 = payload.get("ciphertext")
+        vdf_challenge = payload.get("vdf_challenge")
+        is_binary = payload.get("is_binary", False)  # Par défaut, considérer comme texte
+        
+        if not all([encrypted_k_msg_b64, nonce_b64, ciphertext_b64]):
+            return "Erreur: message incomplet"
+            
+        # Convertir de base64 en bytes
+        encrypted_k_msg = base64.b64decode(encrypted_k_msg_b64)
+        nonce = base64.b64decode(nonce_b64)
+        ciphertext = base64.b64decode(ciphertext_b64)
+        
+        # Résoudre le VDF challenge si présent
+        if vdf_challenge:
+            print("Message protégé par un time-lock puzzle. Déchiffrement en cours...")
+            
+            # Option 1: Essayer d'obtenir la clé de défi rapide si disponible
+            challenge_key = get_challenge_key(message_id)
+            
+            if not challenge_key:
+                # Option 2: Résoudre le puzzle (plus lent)
+                print("Clé rapide non disponible. Résolution du puzzle temporal...")
+                N = vdf_challenge.get("N")
+                T = vdf_challenge.get("T")
+                C = vdf_challenge.get("C")
+                
+                if all([N, T, C]):
+                    # Résoudre le puzzle pour obtenir la clé
+                    challenge_key = solve_time_lock_puzzle(N, T, C)
+                else:
+                    return "Erreur: paramètres de puzzle incomplets"
+            
+            # Déchiffrer la clé symétrique avec la clé de défi
+            encrypted_k_msg = decrypt_with_challenge_key(encrypted_k_msg, challenge_key)
+        
+        # Déchiffrer la clé symétrique avec la clé privée du destinataire
+        from crypto_utils import decrypt_key_asymmetric
+        k_msg = decrypt_key_asymmetric(encrypted_k_msg, recipient_private_key)
+        
+        # Déchiffrer le message avec la clé symétrique
+        from crypto_utils import decrypt_message_symmetric
+        decrypted_content = decrypt_message_symmetric(ciphertext, nonce, k_msg)
+        
+        # Si le contenu est binaire, le retourner tel quel, sinon le décoder en texte
+        if is_binary:
+            return decrypted_content  # Retourne les bytes bruts
+        else:
+            return decrypted_content.decode('utf-8')  # Convertit en texte
+        
+    except Exception as e:
+        print(f"Erreur lors du déchiffrement du message: {e}")
+        return f"Erreur de déchiffrement: {str(e)}"
 

@@ -7,7 +7,7 @@ def is_coprime(a, b):
 
 def generate_time_lock_puzzle(secret, T_desired_seconds):
     # 1. Générer N = p*q (comme en RSA)
-    p = 104723  # En pratique, utiliser des nombres premiers plus grands
+    p = 104723  
     q = 104729
     N = p * q
     phi_N = (p - 1) * (q - 1)

@@ -1,88 +1,160 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Retrieve Messages</title>
+    <title>Vos Messages</title>
     <style>
         body {
             font-family: Arial, sans-serif;
             background-color: #f4f4f4;
             margin: 0;
-            padding: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
+            padding: 20px;
         }
         .container {
+            max-width: 800px;
+            margin: 0 auto;
             background-color: white;
-            padding: 2rem;
+            padding: 20px;
             border-radius: 8px;
             box-shadow: 0 0 10px rgba(0,0,0,0.1);
-            width: 100%;
-            max-width: 800px;
         }
-        h2 {
-            text-align: center;
+        h1, h2 {
             color: #333;
-            margin-bottom: 1.5rem;
-        }
-        .message-list {
-            margin-bottom: 2rem;
         }
         .message {
-            background-color: #f8f9fa;
-            border: 1px solid #dee2e6;
-            border-radius: 4px;
-            padding: 1rem;
-            margin-bottom: 1rem;
+            border-bottom: 1px solid #eee;
+            padding: 15px;
+            margin-bottom: 15px;
         }
         .message-header {
             display: flex;
             justify-content: space-between;
-            margin-bottom: 0.5rem;
-            color: #666;
-            font-size: 0.9rem;
+            margin-bottom: 10px;
+        }
+        .message-sender {
+            font-weight: bold;
+            color: #007bff;
+        }
+        .message-date {
+            color: #777;
+            font-size: 0.9em;
         }
         .message-content {
-            color: #333;
+            background-color: #f9f9f9;
+            padding: 15px;
+            border-radius: 5px;
             white-space: pre-wrap;
         }
-        .no-messages {
-            text-align: center;
-            color: #666;
-            padding: 2rem;
+        .locked-message {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+        }
+        .error-message {
+            color: #dc3545;
+            margin-bottom: 20px;
+        }
+        .info-message {
+            color: #28a745;
+            margin-bottom: 20px;
         }
         .back-link {
-            display: block;
-            text-align: center;
-            margin-top: 1rem;
-            color: #666;
+            display: inline-block;
+            margin: 20px 0;
+            color: #007bff;
             text-decoration: none;
         }
         .back-link:hover {
-            color: #333;
+            text-decoration: underline;
+        }
+        .unlock-time {
+            background-color: #ffeecc;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            margin-top: 10px;
+            display: inline-block;
+        }
+        .vdf-indicator {
+            background-color: #e6f7ff;
+            border-left: 4px solid #1890ff;
+            padding: 5px 10px;
+            margin-top: 10px;
+            font-size: 0.85em;
+            border-radius: 3px;
+        }
+        .file-download {
+            margin-top: 10px;
+            text-align: right;
+        }
+        .download-btn {
+            background-color: #007bff;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            text-decoration: none;
+            margin-left: 10px;
+        }
+        .download-btn:hover {
+            text-decoration: underline;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h2>Your Messages</h2>
-        <div class="message-list">
-            {% if messages %}
-                {% for message in messages %}
-                <div class="message">
+        <h1>Vos Messages</h1>
+        
+        {% if error %}
+            <div class="error-message">{{ error }}</div>
+        {% endif %}
+        
+        {% if info %}
+            <div class="info-message">{{ info }}</div>
+        {% endif %}
+        
+        {% if messages %}
+            {% for message in messages %}
+                <div class="message {% if message.is_locked %}locked-message{% endif %}">
                     <div class="message-header">
-                        <span>From: {{ message.sender }}</span>
-                        <span>{{ message.timestamp }}</span>
+                        <span class="message-sender">De: {{ message.sender }}</span>
+                        <span class="message-date">{{ message.timestamp }}</span>
                     </div>
-                    <div class="message-content">{{ message.content }}</div>
+                    
+                    {% if message.is_locked %}
+                        <div class="message-content">
+                            {{ message.content }}
+                        </div>
+                        <div class="unlock-time">
+                            Déverrouillable à partir du: {{ message.unlock_date }}
+                            {% if message.time_remaining %}
+                            <br>Temps restant: {{ message.time_remaining }}
+                            {% endif %}
+                        </div>
+                    {% else %}
+                        <div class="message-content">
+                            {{ message.content }}
+                            {% if "[Fichier" in message.content %}
+                                <div class="file-download">
+                                    <a href="{{ url_for('download_file', file_id='file_' + message.id) }}" class="download-btn">Télécharger le fichier</a>
+                                </div>
+                            {% endif %}
+                        </div>
+                        {% if message.vdf_info %}
+                            <div class="vdf-indicator">
+                                Ce message est protégé par un puzzle temporel (VDF)
+                                {% if message.vdf_info.estimated_time %}
+                                <br>Temps de calcul estimé pour résoudre le puzzle: {{ message.vdf_info.estimated_time }}
+                                {% endif %}
+                            </div>
+                        {% endif %}
+                    {% endif %}
                 </div>
-                {% endfor %}
-            {% else %}
-                <div class="no-messages">No messages to display</div>
+            {% endfor %}
+        {% else %}
+            {% if not error and not info %}
+                <p>Vous n'avez pas de messages.</p>
             {% endif %}
-        </div>
-        <a href="/" class="back-link">← Back to Dashboard</a>
+        {% endif %}
+        
+        <a href="/" class="back-link">Retour à l'accueil</a>
     </div>
 </body>
 </html> 

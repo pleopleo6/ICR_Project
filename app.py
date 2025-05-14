@@ -1,10 +1,16 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash
+from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file
+from io import BytesIO
 import json
-from client import create_user, reset_password, get_keys_from_password, send_message_payload
+from client import create_user, reset_password, get_keys_from_password, send_message_payload, decrypt_message
 import socket
 import ssl
 from datetime import timedelta, datetime
 from functools import wraps
+import os
+from pathlib import Path
+import uuid
+import base64
+import time
 
 app = Flask(__name__)
 # Note: Dans un environnement de production, il serait préférable de :
@@ -45,8 +51,43 @@ def send_payload(payload):
     try:
         with socket.create_connection((host, port)) as sock:
             with context.wrap_socket(sock, server_hostname=host) as ssock:
-                ssock.sendall(payload.encode())
-                return ssock.recv(4096).decode()
+                # Envoyer les données en chunks si nécessaire pour les fichiers volumineux
+                payload_bytes = payload.encode()
+                payload_len = len(payload_bytes)
+                
+                # Afficher la taille des données envoyées
+                print(f"Sending payload of size: {payload_len} bytes")
+                
+                # Si petit, envoyer en une seule fois
+                if payload_len < 8192:
+                    ssock.sendall(payload_bytes)
+                else:
+                    # Pour les grands payloads, envoyer par morceaux
+                    chunk_size = 8192
+                    for i in range(0, payload_len, chunk_size):
+                        chunk = payload_bytes[i:i+chunk_size]
+                        ssock.send(chunk)
+                        # Petite pause pour éviter la surcharge
+                        time.sleep(0.001)
+                
+                # Recevoir la réponse par morceaux
+                buffer = b""
+                while True:
+                    chunk = ssock.recv(8192)
+                    if not chunk:
+                        break
+                    buffer += chunk
+                    
+                    # Essayer de voir si nous avons un JSON complet
+                    try:
+                        json.loads(buffer.decode())
+                        # Si nous sommes ici, le JSON est complet
+                        break
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        # Continuer à lire s'il y a plus de données
+                        continue
+                
+                return buffer.decode()
     except Exception as e:
         return f"Error: {e}"
 
@@ -172,12 +213,16 @@ def send_message():
             message = request.form.get("message")
             if not message:
                 return render_template("send_message.html", error="Please enter a message")
-            content = message
+            content = message  # Texte simple, sera encodé dans send_message_payload
         else:  # file
             file = request.files.get("file")
             if not file:
                 return render_template("send_message.html", error="Please select a file")
-            content = file.read().decode('utf-8', errors='ignore')
+            
+            # Lire le contenu binaire du fichier directement
+            content = file.read()  # Contenu binaire, pas besoin de décoder
+            if not content:
+                return render_template("send_message.html", error="File is empty")
         
         payload = json.dumps({"action": "get_user_all_data", "username": recipient})
         rep = send_payload(payload)
@@ -201,7 +246,7 @@ def send_message():
         sender = session['username']
 
         payload2 = send_message_payload(sender, recipient, content, message_type, unlock_date, Pubkey_enc_recipient)
-        print(payload2)
+        print(f"Message payload size: {len(payload2)} bytes")
 
         response = send_payload(payload2)
         print(response)
@@ -219,8 +264,201 @@ def send_message():
 @app.route("/retrieve_messages", methods=["GET"])
 @login_required
 def retrieve_messages():
-    # TODO: Implémenter la récupération des messages
-    return render_template("retrieve_messages.html")
+    username = session['username']
+    
+    # Récupérer la liste des messages
+    try:
+        # Charger les messages du fichier
+        messages_file = "messages.json"
+        if not os.path.exists(messages_file):
+            return render_template("retrieve_messages.html", error="Aucun message disponible")
+            
+        with open(messages_file, 'r') as f:
+            messages_data = json.load(f)
+            
+        # Filtrer les messages pour le destinataire actuel
+        user_messages = []
+        for msg in messages_data.get("messages", []):
+            if msg.get("to") == username:
+                user_messages.append(msg)
+                
+        if not user_messages:
+            return render_template("retrieve_messages.html", info="Vous n'avez pas de messages")
+            
+        # Charger la clé privée de chiffrement pour déchiffrer
+        user_dir = Path(f"client_keys/{username}")
+        try:
+            from cryptography.hazmat.primitives import serialization
+            with open(user_dir / "enc_key.pem", "rb") as f:
+                priv_enc = serialization.load_pem_private_key(f.read(), password=None)
+        except Exception as e:
+            return render_template("retrieve_messages.html", error=f"Erreur de chargement de clé: {e}")
+        
+        # Déchiffrer les messages
+        decoded_messages = []
+        for msg in user_messages:
+            sender = msg.get("from", "Inconnu")
+            timestamp = msg.get("timestamp", "Date inconnue")
+            
+            # Vérifier si le message est encore verrouillé par date
+            unlock_date_str = msg.get("payload", {}).get("unlock_date")
+            is_locked = False
+            unlock_date_display = "Non spécifié"
+            time_remaining = None
+            
+            if unlock_date_str:
+                try:
+                    from datetime import datetime
+                    # Format du unlock_date: "14:05:2023:13:02:00" (jour:mois:année:heure:minute:seconde)
+                    day, month, year, hour, minute, second = unlock_date_str.split(":")
+                    unlock_datetime = datetime(int(year), int(month), int(day), 
+                                              int(hour), int(minute), int(second))
+                    now = datetime.now()
+                    is_locked = now < unlock_datetime
+                    unlock_date_display = unlock_datetime.strftime("%d/%m/%Y %H:%M:%S")
+                    
+                    # Calcul du temps restant
+                    if is_locked:
+                        from datetime import timedelta
+                        time_diff = unlock_datetime - now
+                        days = time_diff.days
+                        hours, remainder = divmod(time_diff.seconds, 3600)
+                        minutes, seconds = divmod(remainder, 60)
+                        
+                        if days > 0:
+                            time_remaining = f"{days} jours, {hours} heures, {minutes} minutes"
+                        elif hours > 0:
+                            time_remaining = f"{hours} heures, {minutes} minutes, {seconds} secondes"
+                        else:
+                            time_remaining = f"{minutes} minutes, {seconds} secondes"
+                except Exception as e:
+                    print(f"Erreur de parsing de date: {e}")
+                    
+            # Extraire les informations du puzzle VDF si présentes
+            vdf_info = None
+            payload = msg.get("payload", {})
+            if "vdf_challenge" in payload:
+                vdf_data = payload["vdf_challenge"]
+                vdf_info = {
+                    "iterations": vdf_data.get("T", 0),
+                    "has_challenge": True
+                }
+                # Estimer le temps de résolution (approximatif)
+                if vdf_info["iterations"] > 0:
+                    estimated_seconds = min(vdf_info["iterations"] * 0.00001, 300)  # Estimation grossière
+                    if estimated_seconds < 60:
+                        vdf_info["estimated_time"] = f"environ {estimated_seconds:.1f} secondes"
+                    else:
+                        vdf_info["estimated_time"] = f"environ {estimated_seconds/60:.1f} minutes"
+            
+            # Déchiffrer seulement si le message n'est pas verrouillé par date
+            if not is_locked:
+                try:
+                    content = decrypt_message(msg, priv_enc)
+                    
+                    # Déterminer si c'est un fichier binaire et comment l'afficher
+                    message_type = msg.get("type", "text")
+                    is_binary = msg.get("payload", {}).get("is_binary", False)
+                    
+                    if is_binary or message_type != "text":
+                        # Pour les fichiers binaires, indiquer qu'il s'agit d'un fichier à télécharger
+                        # On stockera le contenu binaire dans une session pour téléchargement ultérieur
+                        content_display = f"[Fichier {message_type}]"
+                        
+                        # Générer un ID unique pour ce fichier
+                        file_id = f"file_{msg.get('message_id', str(uuid.uuid4()))}"
+                        
+                        # Stocker le contenu binaire dans la session pour téléchargement ultérieur
+                        # Note: pour les gros fichiers, il serait préférable de les stocker temporairement sur disque
+                        if 'files' not in session:
+                            session['files'] = {}
+                        
+                        # Pour la session, on doit encoder en base64
+                        if isinstance(content, bytes):
+                            session['files'][file_id] = base64.b64encode(content).decode('utf-8')
+                            content_type = "application/octet-stream"  # Type MIME par défaut
+                            
+                            # Essayer de détecter le type de fichier
+                            if content.startswith(b'\xFF\xD8\xFF'):  # Signature JPEG
+                                content_type = "image/jpeg"
+                            elif content.startswith(b'\x89PNG\r\n\x1A\n'):  # Signature PNG
+                                content_type = "image/png"
+                            elif content.startswith(b'GIF87a') or content.startswith(b'GIF89a'):  # Signature GIF
+                                content_type = "image/gif"
+                            elif content.startswith(b'%PDF'):  # Signature PDF
+                                content_type = "application/pdf"
+                                
+                            session['files_types'] = session.get('files_types', {})
+                            session['files_types'][file_id] = content_type
+                            
+                            content = content_display
+                    
+                except Exception as e:
+                    content = f"Erreur de déchiffrement: {e}"
+            else:
+                content = f"Message verrouillé jusqu'au {unlock_date_display}"
+                if time_remaining:
+                    content += f"\nTemps restant: {time_remaining}"
+            
+            decoded_messages.append({
+                "id": msg.get("message_id", "ID inconnu"),
+                "sender": sender,
+                "timestamp": timestamp,
+                "content": content,
+                "is_locked": is_locked,
+                "unlock_date": unlock_date_display,
+                "time_remaining": time_remaining,
+                "vdf_info": vdf_info
+            })
+            
+        # Trier par date (plus récent en premier)
+        decoded_messages.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+        
+        return render_template("retrieve_messages.html", messages=decoded_messages)
+        
+    except Exception as e:
+        return render_template("retrieve_messages.html", error=f"Erreur de récupération: {str(e)}")
+
+@app.route("/download_file/<file_id>")
+@login_required
+def download_file(file_id):
+    # Vérifier que le fichier existe dans la session
+    if 'files' not in session or file_id not in session['files']:
+        flash("Fichier non disponible ou expiré", "error")
+        return redirect(url_for('retrieve_messages'))
+    
+    try:
+        # Récupérer et décoder le contenu
+        file_content_b64 = session['files'][file_id]
+        file_content = base64.b64decode(file_content_b64)
+        
+        # Récupérer le type MIME
+        content_type = session.get('files_types', {}).get(file_id, 'application/octet-stream')
+        
+        # Créer un nom de fichier si nécessaire
+        filename = f"secured_file_{file_id.split('_')[-1]}"
+        
+        # Extension basée sur le type MIME
+        if content_type == 'image/jpeg':
+            filename += '.jpg'
+        elif content_type == 'image/png':
+            filename += '.png'
+        elif content_type == 'image/gif':
+            filename += '.gif'
+        elif content_type == 'application/pdf':
+            filename += '.pdf'
+        
+        # Créer une réponse avec le fichier
+        return send_file(
+            BytesIO(file_content),
+            mimetype=content_type,
+            as_attachment=True,
+            download_name=filename
+        )
+        
+    except Exception as e:
+        flash(f"Erreur lors du téléchargement: {str(e)}", "error")
+        return redirect(url_for('retrieve_messages'))
 
 if __name__ == "__main__":
     app.run(debug=True, port=5050)
