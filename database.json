@@ -1,26 +1,9 @@
 {
     "bob": {
-        "salt_argon2": "xoiRtBULyhOw3vRPKEvM3WDl4aMa5DpVtJnQut9caQ4=",
-        "salt_hkdf": "N0dcnodV6tP2cC7TlcGnNz2WNkB7BEHITZPgm15yQvc=",
-        "PubKey_sign": "4sgCOj4yLfex40puWXgNmKk1w1GDOWpj/FDliHFbJi8=",
-        "PubKey_enc": "GIw3A9sEu2e705qBNFHAbKR9+VMdwzk0F2XLiVKJ9x0=",
-        "Encrypted_sign_key": "fD/kbbXViq2yOS8IRbR5KrXMctO43oWtHABzC9f9ACmv8YilG66yInhNc/Kt9JwNHfhwU2ilky922iwc",
-        "Encrypted_enc_key": "4HctbGE0+Y8MsSWdJwVBA6JPpLllpUsMJdF0xI+k0tW8XHDNXEQO7V+wVG+qpoMqH3HpgyzDx+8tV+bF"
-    },
-    "leo": {
-        "salt_argon2": "Gcgx++0uVbW+E1vOmQzeHCrcQeJ0ij/xEgxtIa0o/K4=",
-        "salt_hkdf": "Z4bv/y6LVpOi96dcaKubLYav+c9WDVwFG1vYuPv9dxo=",
-        "PubKey_sign": "wrEKa9qZjvHu787qWgCiAvaSftKF1Oq4N5CvsCROAiw=",
-        "PubKey_enc": "2g0PdDYifFpZNwdXVufb69UCmdRb0xH8c/WJLaTQTmc=",
-        "Encrypted_sign_key": "do29PxAoZG1bLPbNE2rPC6I+QMGet0m4H5VaKmmwyigeVE8I2xVlM6FYa2TN2fYQ6EPUdzZM+BQJIhJU",
-        "Encrypted_enc_key": "k9pbDNLZKUbTLu/AlM00HuF5PI+4Itglpp8PVpatRhDWitUQWCzaiPGhdD0PtY0fdNT7Wd1PAauvHGEg"
-    },
-    "alice": {
-        "salt_argon2": "I9faH87zoSXblG2NcbWwBRplB33ZQwJ1+KVRdYh5UnQ=",
-        "salt_hkdf": "5ULKHRrYCZDDPDKm+EDQt2VpNBy74Sfm5eamL5vUtcI=",
-        "PubKey_sign": "ufY68esqvCIjjlJ3aod6+A9m3X18+PZ7LSCkVyTTSNQ=",
-        "PubKey_enc": "oZZDHwGgEZj7UmBcIWr2/IQYENEF7rCRCPSYpTGsdHQ=",
-        "Encrypted_sign_key": "PukJVVWTddPyQBoeUmayTMDF1lluLkvNk+a0qle67oXGpXi03n6aOmCtE4qyOo1Qp6xZ2AoJRbmslDzi",
-        "Encrypted_enc_key": "jjQYJvle+346dFMOQ9brRZpqimdzYMqaFIOaLjupXwH/Zuqurkh3zEELQLNi8NsHBWcSjw3cXPqpZSOW"
+        "auth_key": "Nbxgsu7B4VB9ArWv3luycx5B5OT0dtv8fk47lc54Ns8=",
+        "PubKey_sign": "o9w/Ao5f0hInRtL634ovAhSBhv056+0ff7uqzWXkHqY=",
+        "PubKey_enc": "f7NzBwJVHel57lJR+h/OkY24RsLd/WUU/mg4AVUAVQE=",
+        "Encrypted_sign_key": "j0vKCyyxWnzRPYDIqmS9Cx1upXR/iqe+zPHPXQioCmVE9J2t8AaAWeC/UGDAg49YoHAGAzEjh6TU1AAh",
+        "Encrypted_enc_key": "MIatT1jQGUG+AB3RwLQoO14qm2loIJ3e853kSztcaRvpzc16aE1aIYf6Ag6qMzZjx/RPP/Uhg8Dxr2oV"
     }
 }

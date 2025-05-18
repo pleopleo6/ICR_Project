@@ -16,7 +16,6 @@ def load_database():
         except json.JSONDecodeError:
             return {}
 
-
 def get_user_all_data(username):
     db = load_database()
     if username in db:
@@ -24,7 +23,53 @@ def get_user_all_data(username):
     else:
         return {"status": "error", "message": "User not found"}
 
-def create_user(username, salt_argon2, salt_hkdf, pubkey_sign, pubkey_enc, encrypted_sign_key, encrypted_enc_key):
+def verify_auth_key(username: str, auth_key_b64: str) -> bool:
+    print(f"--- Verifying auth_key for username: {username} ---")
+
+    if not os.path.exists("database.json"):
+        print("Database file not found.")
+        return False
+
+    with open("database.json", "r") as f:
+        try:
+            db = json.load(f)
+        except json.JSONDecodeError:
+            print("Failed to parse JSON database.")
+            return False
+
+    user_data = db.get(username)
+    if not user_data:
+        print(f"User {username} not found in database.")
+        return False
+
+    stored_auth_key_b64 = user_data.get("auth_key")
+    if not stored_auth_key_b64:
+        print(f"No auth_key found for user {username} in database.")
+        return False
+
+    print(f"Stored auth_key (B64): {stored_auth_key_b64}")
+    print(f"Received auth_key (B64): {auth_key_b64}")
+
+    try:
+        stored_auth_key = base64.b64decode(stored_auth_key_b64)
+        received_auth_key = base64.b64decode(auth_key_b64)
+
+        print(f"Stored auth_key (bytes): {stored_auth_key.hex()}")
+        print(f"Received auth_key (bytes): {received_auth_key.hex()}")
+    except Exception as e:
+        print(f"Base64 decoding failed: {e}")
+        return False
+
+    match = stored_auth_key == received_auth_key
+    print("Keys match:", match)
+    print("--- END VERIFICATION ---")
+
+    return match
+
+def create_user(username, auth_key, pubkey_sign, pubkey_enc, encrypted_sign_key, encrypted_enc_key):
+    """
+    Create or update an existing user in the database.
+    """
     # Load existing database or initialize a new one
     if os.path.exists(DB_FILE):
         with open(DB_FILE, 'r') as f:
@@ -35,14 +80,9 @@ def create_user(username, salt_argon2, salt_hkdf, pubkey_sign, pubkey_enc, encry
     else:
         db = {}
 
-    # Check if the user already exists
-    if username in db:
-        return {"status": "error", "message": "Username already exists"}
-
-    # Add the new user with both salts
+    # Add or update the user with the provided data
     db[username] = {
-        "salt_argon2": salt_argon2,
-        "salt_hkdf": salt_hkdf,
+        "auth_key": auth_key,
         "PubKey_sign": pubkey_sign,
         "PubKey_enc": pubkey_enc,
         "Encrypted_sign_key": encrypted_sign_key,
@@ -53,8 +93,7 @@ def create_user(username, salt_argon2, salt_hkdf, pubkey_sign, pubkey_enc, encry
     with open(DB_FILE, 'w') as f:
         json.dump(db, f, indent=4)
 
-    return {"status": "success", "message": f"User {username} created successfully"}
-
+    return {"status": "success", "message": f"User {username} created or updated successfully"}
 
 def reset_password(username, salt_argon2, salt_hkdf, Encrypted_sign_key, Encrypted_enc_key):
     try:

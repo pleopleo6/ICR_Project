@@ -9,6 +9,17 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.asymmetric import ed25519, x25519
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 import json
+import hashlib
+
+from cryptography.hazmat.primitives import hashes
+
+def derive_salt_from_username(username, length=32):
+    """
+    Derives a salt from a username using SHA3-256.
+    """
+    digest = hashes.Hash(hashes.SHA3_256(), backend=default_backend())
+    digest.update(username.encode())
+    return digest.finalize()[:length]
 
 def generate_salt(length=32):
     return secrets.token_bytes(length)
@@ -27,15 +38,27 @@ def hash_password_argon2id(password: str, salt: bytes, hash_len=32):
         type=Type.ID
     )
 
-def derive_encryption_key(argon2_hash: bytes, salt: bytes = b"", length: int = 32) -> bytes:
+def derive_encryption_key(master_key: bytes, salt: bytes = b"", length: int = 32, info: bytes = b"encryption key") -> bytes:
+    """
+    Derives a key from the master_key using HKDF with optional salt and info.
+
+    Args:
+        master_key (bytes): The input keying material.
+        salt (bytes, optional): Salt value (can be empty). Defaults to b"".
+        length (int, optional): Length of the derived key. Defaults to 32.
+        info (bytes, optional): Contextual information to produce different keys. Defaults to b"encryption key".
+
+    Returns:
+        bytes: The derived key.
+    """
     hkdf = HKDF(
-        algorithm=hashes.SHA3_256(), 
+        algorithm=hashes.SHA3_256(),
         length=length,
         salt=salt,
-        info=b"encryption key",
+        info=info,
         backend=default_backend()
     )
-    return hkdf.derive(argon2_hash)
+    return hkdf.derive(master_key)
 
 def generate_ed25519_keypair():
     private_key = ed25519.Ed25519PrivateKey.generate()

@@ -12,7 +12,8 @@ from database import (
     verify_signature,
     reset_password,
     get_all_users, # for get the list of user of the app
-    store_message
+    store_message,
+    verify_auth_key
 )
 from vdf_crypto import (
     generate_challenge_key,
@@ -44,8 +45,7 @@ def handle_client_request(data):
         if action == "create_user":
             result = create_user(
                 username=request["username"],
-                salt_argon2=request["salt_argon2"],
-                salt_hkdf=request["salt_hkdf"],
+                auth_key=request["auth_key"],
                 pubkey_sign=request["PubKey_sign"],
                 pubkey_enc=request["PubKey_enc"],
                 encrypted_sign_key=request["Encrypted_sign_key"],
@@ -68,15 +68,17 @@ def handle_client_request(data):
                     result = {"status": "error", "message": f"Signature verification failed: {msg}"}
                 else:
                     print("Signature verified correctly")
-                    # Appliquer les changements (nouvelles données)
-                    ok = reset_password(
-                        username=username,
-                        salt_argon2=request["salt_argon2"],
-                        salt_hkdf=request["salt_hkdf"],
-                        Encrypted_sign_key=request["Encrypted_sign_key"],
-                        Encrypted_enc_key=request["Encrypted_enc_key"]
+                    # Appliquer les nouvelles données comme un "update" d'utilisateur
+                    ok = create_user(  # On réécrit les données avec la nouvelle auth_key et les clés
+                        username=request["username"],
+                        auth_key=request["auth_key"],
+                        pubkey_sign=request["PubKey_sign"],
+                        pubkey_enc=request["PubKey_enc"],
+                        encrypted_sign_key=request["Encrypted_sign_key"],
+                        encrypted_enc_key=request["Encrypted_enc_key"]
                     )
-                    result = {"status": "success" if ok else "error", "message": "Password reset" if ok else "Failed to update user"}
+                    status = "success" if ok else "error"
+                    result = {"status": status, "message": "Password reset" if ok else "Failed to update user"}
             except Exception as e:
                 result = {"status": "error", "message": f"Exception: {str(e)}"}
         elif action == "send_message":
@@ -109,61 +111,49 @@ def handle_client_request(data):
                     
                     print(f"DEBUG - Traitement du message {message_id} de {sender}")
                     
-                    # 1. Générer une clé de défi
+                    # 1. Générer une clé de défi aléatoire (32 octets)
                     challenge_key = generate_challenge_key()
                     print(f"DEBUG - Clé de défi générée: {challenge_key.hex()[:16]}...")
-                    
+
                     # 2. Déterminer le temps de puzzle en fonction de la date d'unlock
                     unlock_time = 10  # valeur par défaut en secondes
                     
-                    # Récupérer la date d'unlock du message si présente
                     if "unlock_date" in payload:
                         unlock_date_str = payload["unlock_date"]
                         try:
-                            # Format du unlock_date: "14:05:2023:13:02:00" (jour:mois:année:heure:minute:seconde)
                             day, month, year, hour, minute, second = unlock_date_str.split(":")
-                            unlock_datetime = datetime(int(year), int(month), int(day), 
-                                                    int(hour), int(minute), int(second))
-                            
-                            # Calculer la différence entre maintenant et la date d'unlock
+                            unlock_datetime = datetime(int(year), int(month), int(day), int(hour), int(minute), int(second))
                             now = datetime.now()
                             
                             print(f"DEBUG - Date de déverrouillage: {unlock_datetime}, temps actuel: {now}")
                             
-                            # Si la date est dans le futur, ajuster le temps du puzzle
                             if unlock_datetime > now:
-                                # Calculer la différence en secondes
                                 time_diff = (unlock_datetime - now).total_seconds()
-                                
-                                # Limiter le temps maximum pour éviter les puzzles trop complexes
                                 MAX_PUZZLE_TIME = 300  # 5 minutes maximum
-                                
-                                # Calculer le temps du puzzle comme environ 0.8% du temps d'attente (1/120 du temps total)
-                                # Utiliser la même formule que le client pour synchroniser les calculs
                                 unlock_time = min(time_diff / 120, MAX_PUZZLE_TIME)
-                                
-                                # Vérifier si le temps de déverrouillage est spécifié dans les données du message
+
                                 if "vdf_challenge" in payload and "unlock_delay_seconds" in payload["vdf_challenge"]:
                                     client_unlock_time = float(payload["vdf_challenge"]["unlock_delay_seconds"])
                                     print(f"DEBUG - Temps de déverrouillage VDF spécifié par le client: {client_unlock_time:.2f}s")
                                     unlock_time = min(client_unlock_time / 120, MAX_PUZZLE_TIME)
-                                
+
                                 print(f"DEBUG - Différence temporelle: {time_diff:.2f} secondes, temps de puzzle fixé à: {unlock_time:.2f}s (environ {100*unlock_time/time_diff:.2f}% du temps d'attente)")
                         except Exception as e:
                             print(f"Erreur lors du parsing de la date d'unlock: {e}")
                     
-                    # 3. Créer un time-lock puzzle pour la clé
+                    # 3. Créer un time-lock puzzle pour la même clé de défi
                     N, T, C = generate_time_lock_puzzle(challenge_key, unlock_time)
                     print(f"DEBUG - Puzzle généré: N={N}, T={T}, C={C}")
                     
-                    # 4. Chiffrer le encrypted_k_msg avec la clé de défi
+                    # 4. Chiffrer le encrypted_k_msg avec la même clé de défi
                     if "encrypted_k_msg" in payload:
                         encrypted_k_msg_bytes = base64.b64decode(payload["encrypted_k_msg"])
                         print(f"DEBUG - Taille du encrypted_k_msg original: {len(encrypted_k_msg_bytes)} octets")
                         
-                        # Stocker encrypted_k_msg original au lieu de la clé de défi
+                        # Stocker encrypted_k_msg original pour récupération après déverrouillage par date
                         store_original_encrypted_k_msg(message_id, encrypted_k_msg_bytes)
                         
+                        # Double chiffrage avec la même clé que celle du VDF
                         double_encrypted = encrypt_with_challenge_key(encrypted_k_msg_bytes, challenge_key)
                         print(f"DEBUG - Taille du encrypted_k_msg après doublement chiffré: {len(double_encrypted)} octets")
                         
@@ -192,8 +182,12 @@ def handle_client_request(data):
                 result = {"status": "error", "message": f"Error processing message: {str(e)}"}
         elif action == "get_user_all_data":
             username = request.get("username")
-            if not username:
-                result = {"status": "error", "message": "Missing 'username' in request."}
+            auth_key_client = request.get("auth_key")
+
+            if not username or not auth_key_client:
+                result = {"status": "error", "message": "Missing 'username' or 'auth_key' in request."}
+            elif not verify_auth_key(username, auth_key_client):
+                result = {"status": "error", "message": "Invalid authentication key."}
             else:
                 result = get_user_all_data(username)
         elif action == "get_messages":
