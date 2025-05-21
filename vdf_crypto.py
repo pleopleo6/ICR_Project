@@ -12,23 +12,64 @@ import base64
 def is_coprime(a, b):
     return math.gcd(a, b) == 1
 
+def generate_large_primes(bits=129):  # 129-bit primes → N is 258 bits (to ensure N > 256-bit secret)
+    """Generate large primes p and q."""
+    while True:
+        p = secrets.randbits(bits)
+        if p > 1 and is_prime(p):
+            break
+    while True:
+        q = secrets.randbits(bits)
+        if q > 1 and is_prime(q) and q != p:
+            break
+    return p, q
+
+def is_prime(n, k=5):
+    """Miller-Rabin primality test."""
+    if n <= 1:
+        return False
+    elif n <= 3:
+        return True
+    elif n % 2 == 0:
+        return False
+
+    d = n - 1
+    s = 0
+    while d % 2 == 0:
+        d //= 2
+        s += 1
+
+    for _ in range(k):
+        a = random.randint(2, n - 2)
+        x = pow(a, d, n)
+        if x == 1 or x == n - 1:
+            continue
+        for __ in range(s - 1):
+            x = pow(x, 2, n)
+            if x == n - 1:
+                break
+        else:
+            return False
+    return True
+
 def generate_time_lock_puzzle(secret_bytes, T_desired_seconds=10):
-    """
-    Génère un time-lock puzzle qui encode directement la clé de défi dans le VDF.
-    """
     secret_int = int.from_bytes(secret_bytes, byteorder='big')
 
-    primes_pool = [10007, 10009, 10037, 10039, 50021, 50023, 50033, 104723, 104729, 104743, 104759]
-    p = random.choice(primes_pool)
-    q = random.choice([x for x in primes_pool if x != p])
-    N = p * q
+    # Generate primes until N > secret_int (N must be at least 257 bits)
+    while True:
+        p, q = generate_large_primes(bits=130)  # 130-bit primes → N is 260 bits
+        N = p * q
+        if N > secret_int:
+            break
 
-    print(f"DEBUG - N = {N} (p = {p}, q = {q})")
+    print(f"DEBUG - N = {N} (bits: {N.bit_length()})")
+    print(f"DEBUG - secret_int bits: {secret_int.bit_length()}")
 
-    if not is_coprime(secret_int, N):
-        secret_int += 1
 
-    # Estimation du temps d'une itération
+    if N <= secret_int:
+        raise ValueError("N must be larger than the secret!")
+
+    # Estimate iteration time (for setting T)
     test_iterations = 1000
     x = 2
     start_time = time.time()
@@ -37,36 +78,29 @@ def generate_time_lock_puzzle(secret_bytes, T_desired_seconds=10):
     elapsed_time = time.time() - start_time
     time_per_iter = elapsed_time / test_iterations
 
-    print(f"DEBUG - Temps mesuré par itération: {time_per_iter:.6f} secondes")
+    print(f"DEBUG - Time per iteration: {time_per_iter:.6f} seconds")
 
-    # Calcul du nombre d'itérations pour atteindre T_desired_seconds
     T_iterations = max(1, int(T_desired_seconds / time_per_iter))
-    print(f"DEBUG - Nombre d'itérations calculé: {T_iterations}")
+    print(f"DEBUG - Iterations needed: {T_iterations}")
 
-    # Calcul de a par squarings successifs
-    a = 2
-    for _ in range(T_iterations):
-        a = pow(a, 2, N)
+    # Compute a = 2^(2^T mod φ(N)) mod N (using the trapdoor: φ(N))
+    exponent = pow(2, T_iterations, phi_N)
+    a = pow(2, exponent, N)
 
-    # On utilise a directement comme la clé
-    return (N, T_iterations, a)
+    # Encode the secret: C = (secret_int + a) mod N
+    C = (secret_int + a) % N
 
-def solve_time_lock_puzzle(N, T):
-    """
-    Résout un time-lock puzzle et retourne la clé a sous forme de 32 octets.
-    """
+    # Return (N, T, C) but NOT phi_N (keep it secret!)
+    return (N, T_iterations, C)
+
+def solve_time_lock_puzzle(N, T, C):
     a = 2
     for _ in range(T):
         a = pow(a, 2, N)
 
-    # Convertir en 32 octets (padding à gauche si nécessaire)
-    a_bytes = a.to_bytes((a.bit_length() + 7) // 8 or 1, byteorder='big')
-    if len(a_bytes) < 32:
-        a_bytes = (b'\x00' * (32 - len(a_bytes))) + a_bytes
-    elif len(a_bytes) > 32:
-        a_bytes = a_bytes[-32:]
-
-    return a_bytes
+    secret_int = (C - a) % N
+    secret_bytes = secret_int.to_bytes(32, byteorder='big')  # Force 32 bytes
+    return secret_bytes
 
 def generate_challenge_key():
     """

@@ -14,7 +14,7 @@ import time
 from crypto_utils import derive_encryption_key, hash_password_argon2id, derive_salt_from_username
 from vdf_crypto import generate_challenge_key, encrypt_with_challenge_key, generate_time_lock_puzzle, solve_time_lock_puzzle, decrypt_with_challenge_key
 import threading
-import queue
+from cryptography.hazmat.primitives import serialization
 
 app = Flask(__name__)
 # Note: Dans un environnement de production, il serait préférable de :
@@ -250,7 +250,7 @@ def send_message():
             if not content:
                 return render_template("send_message.html", error="File is empty")
         
-        payload = json.dumps({"action": "get_user_all_data", "username": recipient})
+        payload = json.dumps({"action": "get_user_pub_key", "username": recipient})
         rep = send_payload(payload)
         
         print(f"Server response for recipient: {rep}")
@@ -958,12 +958,14 @@ def solve_vdf_local():
         msg["payload"].pop("vdf_challenge", None)
 
         # Charger la clé privée pour déchiffrer le message final
-        from cryptography.hazmat.primitives import serialization
         with open(f"client_keys/{username}/enc_key.pem", "rb") as f:
             priv_enc = serialization.load_pem_private_key(f.read(), password=None)
 
-        from client import decrypt_message
         decrypted_content = decrypt_message(msg, priv_enc)
+
+        # Déterminer le répertoire de téléchargement
+        download_dir = Path(f"client_messages_download/{username}")
+        download_dir.mkdir(parents=True, exist_ok=True)
 
         return jsonify({
             "status": "success",

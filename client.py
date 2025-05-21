@@ -295,6 +295,7 @@ def send_message_payload(sender, recipient, content, message_type, unlock_date, 
     has_vdf_puzzle = False
     vdf_challenge = None
     
+    # Non-used code (VDF created on server side)
     if unlock_date:
         try:
             # Convertir le format de date en objet datetime

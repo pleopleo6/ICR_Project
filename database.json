@@ -5,5 +5,12 @@
         "PubKey_enc": "f7NzBwJVHel57lJR+h/OkY24RsLd/WUU/mg4AVUAVQE=",
         "Encrypted_sign_key": "j0vKCyyxWnzRPYDIqmS9Cx1upXR/iqe+zPHPXQioCmVE9J2t8AaAWeC/UGDAg49YoHAGAzEjh6TU1AAh",
         "Encrypted_enc_key": "MIatT1jQGUG+AB3RwLQoO14qm2loIJ3e853kSztcaRvpzc16aE1aIYf6Ag6qMzZjx/RPP/Uhg8Dxr2oV"
+    },
+    "alice": {
+        "auth_key": "8dTtuDVUTMnLJ7Dobnx5DM8FwzBkYlSqFJSXqAQAIhY=",
+        "PubKey_sign": "GxwVsmED8HyWc/D344RK+ZvymJ2lw1XNXuV3zmw3sPI=",
+        "PubKey_enc": "jx8fZQxj4P6iZcrUnMhcxYA6h0D9HBOa0TUZXLvJOkE=",
+        "Encrypted_sign_key": "QeLu7BFZCkA/iCHl2AN/Qayv7KWXEvvxXQ1GkH/VPH/6qQ7nZfwzhTCbxoJEpmvlV2+nM4WYqIhBWZM+",
+        "Encrypted_enc_key": "Tj51AR205qwsU3IyO8p5ax7pLZwZlf4xp1qxVcofnmPElB8SSgRr7GvjJWXwX3sM1rHpvziXJq4DbOcF"
     }
 }

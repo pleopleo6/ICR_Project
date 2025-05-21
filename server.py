@@ -11,7 +11,7 @@ from database import (
     get_user_all_data,
     verify_signature,
     reset_password,
-    get_all_users, # for get the list of user of the app
+    get_user_pub_key_enc,
     store_message,
     verify_auth_key
 )
@@ -129,13 +129,12 @@ def handle_client_request(data):
                             
                             if unlock_datetime > now:
                                 time_diff = (unlock_datetime - now).total_seconds()
-                                MAX_PUZZLE_TIME = 300  # 5 minutes maximum
-                                unlock_time = min(time_diff / 120, MAX_PUZZLE_TIME)
+                                unlock_time = time_diff
 
                                 if "vdf_challenge" in payload and "unlock_delay_seconds" in payload["vdf_challenge"]:
                                     client_unlock_time = float(payload["vdf_challenge"]["unlock_delay_seconds"])
                                     print(f"DEBUG - Temps de déverrouillage VDF spécifié par le client: {client_unlock_time:.2f}s")
-                                    unlock_time = min(client_unlock_time / 120, MAX_PUZZLE_TIME)
+                                    unlock_time = time_diff
 
                                 print(f"DEBUG - Différence temporelle: {time_diff:.2f} secondes, temps de puzzle fixé à: {unlock_time:.2f}s (environ {100*unlock_time/time_diff:.2f}% du temps d'attente)")
                         except Exception as e:
@@ -190,6 +189,13 @@ def handle_client_request(data):
                 result = {"status": "error", "message": "Invalid authentication key."}
             else:
                 result = get_user_all_data(username)
+        elif action == "get_user_pub_key":
+                username = request.get("username")
+
+                if not username:
+                    result = {"status": "error", "message": "Missing 'username' in request."}
+                else:
+                    result = get_user_pub_key_enc(username)
         elif action == "get_messages":
             username = request.get("username")
             if not username:

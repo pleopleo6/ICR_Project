@@ -23,6 +23,13 @@ def get_user_all_data(username):
     else:
         return {"status": "error", "message": "User not found"}
 
+def get_user_pub_key_enc(username):
+    db = load_database()
+    if username in db and "PubKey_enc" in db[username]:
+        return {"PubKey_enc": db[username]["PubKey_enc"]}
+    else:
+        return {"status": "error", "message": "User not found or key missing"}
+
 def verify_auth_key(username: str, auth_key_b64: str) -> bool:
     print(f"--- Verifying auth_key for username: {username} ---")
 

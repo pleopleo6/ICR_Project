@@ -3,18 +3,97 @@
 <head>
     <title>Vos Messages</title>
     <style>
-        body { font-family: Arial, sans-serif; background-color: #f4f4f4; margin: 0; padding: 20px; }
-        .container { max-width: 800px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
-        h1 { color: #333; }
-        .message { border: 1px solid #eee; padding: 15px; margin-bottom: 15px; border-radius: 5px; }
-        .message-header { display: flex; justify-content: space-between; margin-bottom: 10px; }
-        .message-sender { font-weight: bold; color: #007bff; }
-        .message-date { color: #777; font-size: 0.9em; }
-        .message-content { background: #f9f9f9; padding: 15px; border-radius: 5px; }
-        .download-btn { background: #28a745; color: white; padding: 10px 20px; border-radius: 4px; text-decoration: none; display: inline-block; margin-bottom: 20px; }
-        .download-btn:hover { background: #218838; }
-        .solve-vdf-btn { background: #6f42c1; color: white; padding: 5px 10px; border-radius: 4px; text-decoration: none; display: inline-block; margin-top: 10px; cursor: pointer; border: none; }
-        .solve-vdf-btn:hover { background: #563d7c; }
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            color: #333;
+        }
+
+        .message {
+            border: 1px solid #eee;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 5px;
+        }
+
+        .message-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+
+        .message-sender {
+            font-weight: bold;
+            color: #007bff;
+        }
+
+        .message-date {
+            color: #777;
+            font-size: 0.9em;
+        }
+
+        .message-content {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 5px;
+        }
+
+        .decrypted-message {
+            background-color: #e0f7fa;
+            color: #004d40;
+            border-left: 4px solid #00acc1;
+            font-weight: bold;
+            animation: fadeIn 0.8s ease-in-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .download-btn {
+            background: #28a745;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 4px;
+            text-decoration: none;
+            display: inline-block;
+            margin-bottom: 20px;
+        }
+
+        .download-btn:hover {
+            background: #218838;
+        }
+
+        .solve-vdf-btn {
+            background: #6f42c1;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            text-decoration: none;
+            display: inline-block;
+            margin-top: 10px;
+            cursor: pointer;
+            border: none;
+        }
+
+        .solve-vdf-btn:hover {
+            background: #563d7c;
+        }
     </style>
 </head>
 <body>
@@ -36,7 +115,7 @@
 
                     {% if message.vdf_info %}
                         <button class="solve-vdf-btn"
-                                onclick="solveVDFLocally('{{ message.id }}')"
+                                onclick="solveVDFLocally('{{ message.id }}', {{ message.vdf_info.N }}, {{ message.vdf_info.T }}, '{{ message.vdf_info.C }}')"
                                 id="solve-btn-{{ message.id }}">
                             Résoudre le VDF
                         </button>
@@ -65,10 +144,12 @@
 
                 const result = await response.json();
 
-                if (result.success && result.decrypted_content) {
+                if (result.status === "success" && result.decrypted_content) {
                     contentDiv.innerHTML = result.decrypted_content;
+                    contentDiv.classList.add('decrypted-message');
                     button.textContent = 'VDF Résolu';
                 } else {
+                    console.error("Erreur backend:", result);
                     button.textContent = 'Erreur lors de la résolution';
                 }
 
