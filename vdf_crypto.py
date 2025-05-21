@@ -12,9 +12,6 @@ import base64
 def is_coprime(a, b):
     return math.gcd(a, b) == 1
 
-def is_coprime(a, b):
-    return math.gcd(a, b) == 1
-
 def generate_time_lock_puzzle(secret_bytes, T_desired_seconds=10):
     """
     Génère un time-lock puzzle qui encode directement la clé de défi dans le VDF.

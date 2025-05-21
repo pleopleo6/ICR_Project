@@ -1,0 +1,32 @@
+Create_user : 
+@startuml
+Client -> Server : send( username, salt, auth_key, Pubkey_sign, Pubkey_enc, Encrypted_sign_key, Encrypted_enc_key )
+Server -> Database : store()
+@enduml
+
+Retrieve Keys from another device:
+@startuml
+Client -> Server : get_salt( username )
+Server -> Database : get_salt( username )
+Database -> Server : salt
+Server -> Client : send( salt )
+Client -> Client : generate auth_key
+Client -> Server : retreive_keys( username, auth_key )
+Server -> Database : verify_auth_key( username, auth_key )
+Database -> Server : 
+Server -> Database : get_user_encrypted_key( Encrypted_sign_key, Encrypted_enc_key )
+Database -> Server : 
+Server -> Client : send( Encrypted_sign_key, Encrypted_enc_key )
+@enduml
+
+Reset password : 
+@startuml
+Client -> Client: Old_auth_key
+Client -> Client: MasterKey = Argon2ID(new_password, new_salt)
+Client -> Client: Auth_key = HKDF(MasterKey, "Auth")
+Client -> Client: Enc_key = HKDF(MasterKey, "Enc")
+Client -> Client: New_Enc_Priv_Keys = Encrypt(Priv_Keys, Enc_key)
+Client -> Server : reset_password ( username, salt, auth_key, Encrypted_sign_key, Encrypted_enc_key, signature )
+Server -> Server : verify_signature(), verify_auth_key()
+Server -> Database : update_user()
+@enduml
