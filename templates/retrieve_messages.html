@@ -94,6 +94,43 @@
         .solve-vdf-btn:hover {
             background: #563d7c;
         }
+        
+        .signature-verified {
+            display: inline-block;
+            margin-left: 10px;
+            padding: 3px 10px;
+            border-radius: 3px;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+        
+        .signature-valid {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .signature-invalid {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .file-download-btn {
+            background: #28a745;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            text-decoration: none;
+            display: inline-block;
+            margin-top: 10px;
+            cursor: pointer;
+            border: none;
+        }
+
+        .file-download-btn:hover {
+            background: #218838;
+        }
     </style>
 </head>
 <body>
@@ -106,11 +143,22 @@
             {% for message in messages %}
                 <div class="message">
                     <div class="message-header">
-                        <span class="message-sender">De: {{ message.sender }}</span>
+                        <span class="message-sender">
+                            De: {{ message.sender }}
+                            {% if message.signature_verified %}
+                                <span class="signature-verified signature-valid">Signature vérifiée</span>
+                            {% elif not message.is_locked %}
+                                <span class="signature-verified signature-invalid">Signature non vérifiée</span>
+                            {% endif %}
+                        </span>
                         <span class="message-date">{{ message.timestamp }}</span>
                     </div>
                     <div class="message-content" id="content-{{ message.id }}">
                         {{ message.content }}
+                        
+                        {% if '[Fichier:' in message.content and not message.is_locked %}
+                            <a href="{{ url_for('download_file', file_id='file_' + message.id) }}" class="file-download-btn">Télécharger le fichier</a>
+                        {% endif %}
                     </div>
 
                     {% if message.vdf_info %}
@@ -148,6 +196,34 @@
                     contentDiv.innerHTML = result.decrypted_content;
                     contentDiv.classList.add('decrypted-message');
                     button.textContent = 'VDF Résolu';
+                    
+                    // Ajouter le bouton de téléchargement si c'est un fichier
+                    if (result.decrypted_content.includes('[Fichier:')) {
+                        const downloadButton = document.createElement('a');
+                        downloadButton.href = `/download_file/file_${messageId}`;
+                        downloadButton.className = 'file-download-btn';
+                        downloadButton.textContent = 'Télécharger le fichier';
+                        contentDiv.appendChild(downloadButton);
+                    }
+                    
+                    // Afficher l'état de vérification de la signature
+                    const messageHeader = contentDiv.closest('.message').querySelector('.message-sender');
+                    
+                    // Supprimer l'ancien badge de signature s'il existe
+                    const oldBadge = messageHeader.querySelector('.signature-verified');
+                    if (oldBadge) {
+                        oldBadge.remove();
+                    }
+                    
+                    // Ajouter le nouveau badge
+                    const signatureBadge = document.createElement('span');
+                    signatureBadge.className = result.signature_verified ? 
+                        'signature-verified signature-valid' : 
+                        'signature-verified signature-invalid';
+                    signatureBadge.textContent = result.signature_verified ? 
+                        'Signature vérifiée' : 
+                        'Signature non vérifiée';
+                    messageHeader.appendChild(signatureBadge);
                 } else {
                     console.error("Erreur backend:", result);
                     button.textContent = 'Erreur lors de la résolution';

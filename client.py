@@ -274,7 +274,7 @@ def reset_password(new_password, username):
 
     return json.dumps(final_payload)
 
-def send_message_payload(sender, recipient, content, message_type, unlock_date, Pubkey_recipient):
+def send_message_payload(sender, recipient, content, message_type, unlock_date, Pubkey_recipient, file_metadata=None):
     # 1. Générer une clé symétrique (ChaCha20)
     k_msg = generate_symmetric_key()
 
@@ -312,7 +312,7 @@ def send_message_payload(sender, recipient, content, message_type, unlock_date, 
                 # Si le délai est inférieur à 5 minutes, on ne met pas de VDF
                 if time_diff > 300:  # Plus de 5 minutes
                     # Générer une clé de défi
-                    challenge_key = generate_challenge_key()
+                    challenge_key = generate_symmetric_key()
                     
                     # Déterminer la difficulté du puzzle
                     # Plus la date est éloignée, plus le puzzle est long à résoudre
@@ -358,6 +358,10 @@ def send_message_payload(sender, recipient, content, message_type, unlock_date, 
         "is_binary": not isinstance(content, str)  # Marquer si c'est un fichier binaire
     }
     
+    # Ajouter les métadonnées du fichier si c'est un fichier
+    if file_metadata and message_type != "text":
+        D["file_metadata"] = file_metadata
+        
     # Ajouter le challenge VDF si présent
     if has_vdf_puzzle:
         D["vdf_challenge"] = vdf_challenge
@@ -387,24 +391,26 @@ def send_message_payload(sender, recipient, content, message_type, unlock_date, 
 
     return json.dumps({"action": "send_message", "message": msg})
 
-def decrypt_message(message, recipient_private_key):
+def decrypt_message(message, recipient_private_key, sender_pubkey_sign=None):
     """
-    Déchiffre un message reçu.
+    Déchiffre un message reçu et vérifie la signature si la clé publique du sender est fournie.
     
     Args:
         message (dict): Le message à déchiffrer
         recipient_private_key (X25519PrivateKey): La clé privée du destinataire
+        sender_pubkey_sign (bytes, optional): La clé publique de signature de l'expéditeur (format Raw)
     
     Returns:
-        Union[str, bytes]: Le contenu déchiffré (texte ou binaire)
+        dict: Contient le contenu déchiffré et le statut de vérification de la signature
     """
     try:
         # Extraire les données du payload
         payload = message.get("payload", {})
         message_id = message.get("message_id")
+        sender = message.get("from", "unknown")
         
         if not payload:
-            return "Erreur: payload vide"
+            return {"content": "Erreur: payload vide", "signature_verified": False}
             
         encrypted_k_msg_b64 = payload.get("encrypted_k_msg")
         nonce_b64 = payload.get("nonce")
@@ -412,13 +418,37 @@ def decrypt_message(message, recipient_private_key):
         vdf_challenge = payload.get("vdf_challenge")
         is_binary = payload.get("is_binary", False)  # Par défaut, considérer comme texte
         
+        # Extraire la signature
+        signature_b64 = message.get("signature")
+        
         if not all([encrypted_k_msg_b64, nonce_b64, ciphertext_b64]):
-            return "Erreur: message incomplet"
+            return {"content": "Erreur: message incomplet", "signature_verified": False}
             
         # Convertir de base64 en bytes
         encrypted_k_msg = base64.b64decode(encrypted_k_msg_b64)
         nonce = base64.b64decode(nonce_b64)
         ciphertext = base64.b64decode(ciphertext_b64)
+        
+        # Vérifier la signature si la clé publique est fournie
+        signature_verified = False
+        if signature_b64 and sender_pubkey_sign:
+            try:
+                # Convertir la signature de base64 en bytes
+                signature = base64.b64decode(signature_b64)
+                
+                # Hacher le payload pour vérifier la signature
+                payload_hash = hash_dict(payload)
+                
+                # Vérifier la signature
+                from crypto_utils import verify_signature
+                signature_verified = verify_signature(payload_hash, signature, sender_pubkey_sign)
+                
+                if signature_verified:
+                    print(f"Signature du message de {sender} vérifiée avec succès.")
+                else:
+                    print(f"ATTENTION: La signature du message de {sender} est invalide!")
+            except Exception as e:
+                print(f"Erreur lors de la vérification de la signature: {e}")
         
         # Résoudre le VDF challenge si présent
         if vdf_challenge:
@@ -441,8 +471,7 @@ def decrypt_message(message, recipient_private_key):
             # Si la date est passée, le serveur devrait nous donner la clé
             # Le client ne doit pas accéder directement aux fichiers du serveur
             if unlock_date_passed or not unlock_date_str:
-                print("La date de déverrouillage est passée. Veuillez demander la clé au serveur.")
-                return "Message verrouillé : demandez la clé au serveur"
+                return {"content": "Message verrouillé : demandez la clé au serveur", "signature_verified": signature_verified}
             
             # Si la date n'est pas passée, il faut résoudre le puzzle
             N = vdf_challenge.get("N")
@@ -456,7 +485,7 @@ def decrypt_message(message, recipient_private_key):
                 # Déchiffrer la clé symétrique avec la clé de défi
                 encrypted_k_msg = decrypt_with_challenge_key(encrypted_k_msg, challenge_key)
             else:
-                return "Erreur: paramètres de puzzle incomplets"
+                return {"content": "Erreur: paramètres de puzzle incomplets", "signature_verified": signature_verified}
         
         # Déchiffrer la clé symétrique avec la clé privée du destinataire
         from crypto_utils import decrypt_key_asymmetric
@@ -468,13 +497,13 @@ def decrypt_message(message, recipient_private_key):
         
         # Si le contenu est binaire, le retourner tel quel, sinon le décoder en texte
         if is_binary:
-            return decrypted_content  # Retourne les bytes bruts
+            return {"content": decrypted_content, "signature_verified": signature_verified}  # Retourne les bytes bruts
         else:
-            return decrypted_content.decode('utf-8')  # Convertit en texte
+            return {"content": decrypted_content.decode('utf-8'), "signature_verified": signature_verified}  # Convertit en texte
         
     except Exception as e:
         print(f"Erreur lors du déchiffrement du message: {e}")
-        return f"Erreur de déchiffrement: {str(e)}"
+        return {"content": f"Erreur de déchiffrement: {str(e)}", "signature_verified": False}
 
 def download_messages(username, server_response=None):
     """

@@ -57,10 +57,11 @@ def generate_time_lock_puzzle(secret_bytes, T_desired_seconds=10):
 
     # Generate primes until N > secret_int (N must be at least 257 bits)
     while True:
-        p, q = generate_large_primes(bits=130)  # 130-bit primes → N is 260 bits
-        N = p * q
-        if N > secret_int:
-            break
+            p, q = generate_large_primes(bits=130)  # 130-bit primes → N is 260 bits
+            N = p * q
+            phi_N = (p - 1) * (q - 1)  # Compute Euler's totient function
+            if N > secret_int:
+                break
 
     print(f"DEBUG - N = {N} (bits: {N.bit_length()})")
     print(f"DEBUG - secret_int bits: {secret_int.bit_length()}")

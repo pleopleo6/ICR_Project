@@ -8,6 +8,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.asymmetric import ed25519, x25519
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 import json
 import hashlib
 
@@ -197,3 +198,26 @@ def decrypt_message_symmetric(ciphertext, nonce, key):
     """
     aead = ChaCha20Poly1305(key)
     return aead.decrypt(nonce, ciphertext, associated_data=None)
+
+def verify_signature(message_hash: bytes, signature: bytes, public_key_bytes: bytes) -> bool:
+    """
+    Vérifie la signature d'un message avec la clé publique Ed25519 du signataire.
+    
+    Args:
+        message_hash (bytes): Le hash du message qui a été signé
+        signature (bytes): La signature à vérifier
+        public_key_bytes (bytes): Clé publique Ed25519 du signataire en format brut (Raw)
+        
+    Returns:
+        bool: True si la signature est valide, False sinon
+    """
+    try:
+        # Convertir les bytes de la clé publique en objet Ed25519PublicKey
+        public_key = Ed25519PublicKey.from_public_bytes(public_key_bytes)
+        
+        # Vérifier la signature
+        public_key.verify(signature, message_hash)
+        return True
+    except Exception as e:
+        print(f"Erreur de vérification de signature: {e}")
+        return False
