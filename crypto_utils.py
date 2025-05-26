@@ -11,7 +11,6 @@ from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 import json
 import hashlib
-
 from cryptography.hazmat.primitives import hashes
 
 def derive_salt_from_username(username, length=32):

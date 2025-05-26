@@ -30,3 +30,29 @@ Client -> Server : reset_password ( username, salt, auth_key, Encrypted_sign_key
 Server -> Server : verify_signature(), verify_auth_key()
 Server -> Database : update_user()
 @enduml
+
+Send message : 
+
+@startuml
+Client -> Server : get_pub_keys( receiver )
+Server -> Database : get_pub_keys( receiver )
+Database -> Server :
+Server -> Client : public keys receiver
+
+Client -> Client : k_msg = generate_symmetric_key()
+Client -> Client : ciphertext, nonce = encrypt_message_symmetric(message, k_msg)
+Client -> Client : encrypted_k_msg = encrypt_key_asymmetric(k_msg, pubkey_recipient)
+
+Client -> Client : unlock_date + signature
+
+Client -> Server : send_messages(  message_id, sender, recipient, message_type, payload, signature )
+
+Server -> Server : verify_signature()
+Server -> Server : challenge_key = generate_challenge_key()
+Server -> Server : N, T, C = generate_TLP(challenge_key, unlock_time)
+
+Server -> Database : store_original_encrypted_k_msg(message_id, encrypted_k_msg)
+Server -> Server : double_encrypted = encrypt_with_challenge_key(encrypted_k_msg, challenge_key)
+Server -> Database : store_message()
+@enduml
+
