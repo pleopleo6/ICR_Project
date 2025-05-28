@@ -31,10 +31,10 @@ def hash_password_argon2id(password: str, salt: bytes, hash_len=32):
     return hash_secret_raw(
         secret=password.encode(),
         salt=salt,
-        time_cost=2,
-        memory_cost=65536,  # 64 MB
+        time_cost=10,          # 10 itérations
+        memory_cost=262144,    # 256 MiB = 262144 KiB
         parallelism=1,
-        hash_len=hash_len,
+        hash_len=32,           # ou 64 selon besoin
         type=Type.ID
     )
 
