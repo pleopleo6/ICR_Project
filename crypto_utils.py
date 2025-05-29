@@ -31,7 +31,7 @@ def hash_password_argon2id(password: str, salt: bytes, hash_len=32):
     return hash_secret_raw(
         secret=password.encode(),
         salt=salt,
-        time_cost=10,          # 10 itérations
+        time_cost=10,          # 10 iterations
         memory_cost=262144,    # 256 MiB = 262144 KiB
         parallelism=1,
         hash_len=32,           # ou 64 selon besoin
@@ -150,27 +150,27 @@ def hash_dict(d: dict) -> bytes:
 
 def decrypt_key_asymmetric(encrypted_data, recipient_private_key):
     """
-    Déchiffre une clé symétrique chiffrée avec X25519 et ChaCha20-Poly1305.
+    Decrypts a symmetric key encrypted with X25519 and ChaCha20-Poly1305.
     
     Args:
-        encrypted_data (bytes): Clé symétrique chiffrée
-        recipient_private_key (X25519PrivateKey): Clé privée du destinataire
+        encrypted_data (bytes): Symmetric key encrypted
+        recipient_private_key (X25519PrivateKey): Recipient's private key
         
     Returns:
-        bytes: Clé symétrique déchiffrée
+        bytes: Decrypted symmetric key
     """
-    # Les 32 premiers octets sont la clé publique éphémère
+    # First 32 bytes are the ephemeral public key
     ephemeral_pubkey_bytes = encrypted_data[:32]
-    nonce = encrypted_data[32:44]  # 12 octets pour le nonce
-    ciphertext = encrypted_data[44:]  # Le reste est le texte chiffré
+    nonce = encrypted_data[32:44]  # 12 bytes for nonce
+    ciphertext = encrypted_data[44:]  # The rest is the ciphertext
     
-    # Convertir en objet clé publique
+    # Convert to public key object
     ephemeral_public_key = x25519.X25519PublicKey.from_public_bytes(ephemeral_pubkey_bytes)
     
-    # Effectuer l'échange de clés
+    # Perform key exchange
     shared_key = recipient_private_key.exchange(ephemeral_public_key)
     
-    # Dériver la clé de chiffrement
+    # Derive encryption key
     derived_key = HKDF(
         algorithm=hashes.SHA3_256(),
         length=32,
@@ -179,44 +179,44 @@ def decrypt_key_asymmetric(encrypted_data, recipient_private_key):
         backend=default_backend()
     ).derive(shared_key)
     
-    # Déchiffrer avec ChaCha20-Poly1305
+    # Decrypt with ChaCha20-Poly1305
     aead = ChaCha20Poly1305(derived_key)
     return aead.decrypt(nonce, ciphertext, associated_data=None)
 
 def decrypt_message_symmetric(ciphertext, nonce, key):
     """
-    Déchiffre un message avec ChaCha20-Poly1305.
+    Decrypts a message with ChaCha20-Poly1305.
     
     Args:
-        ciphertext (bytes): Message chiffré
-        nonce (bytes): Nonce utilisé pour le chiffrement
-        key (bytes): Clé symétrique
+        ciphertext (bytes): Encrypted message
+        nonce (bytes): Nonce used for encryption
+        key (bytes): Symmetric key
         
     Returns:
-        bytes: Message déchiffré
+        bytes: Decrypted message
     """
     aead = ChaCha20Poly1305(key)
     return aead.decrypt(nonce, ciphertext, associated_data=None)
 
 def verify_signature(message_hash: bytes, signature: bytes, public_key_bytes: bytes) -> bool:
     """
-    Vérifie la signature d'un message avec la clé publique Ed25519 du signataire.
+    Verifies a message signature with the signer's Ed25519 public key.
     
     Args:
-        message_hash (bytes): Le hash du message qui a été signé
-        signature (bytes): La signature à vérifier
-        public_key_bytes (bytes): Clé publique Ed25519 du signataire en format brut (Raw)
+        message_hash (bytes): The hash of the message that was signed
+        signature (bytes): The signature to verify
+        public_key_bytes (bytes): Signer's Ed25519 public key in raw format
         
     Returns:
-        bool: True si la signature est valide, False sinon
+        bool: True if the signature is valid, False otherwise
     """
     try:
-        # Convertir les bytes de la clé publique en objet Ed25519PublicKey
+        # Convert public key bytes to Ed25519PublicKey object
         public_key = Ed25519PublicKey.from_public_bytes(public_key_bytes)
         
-        # Vérifier la signature
+        # Verify signature
         public_key.verify(signature, message_hash)
         return True
     except Exception as e:
-        print(f"Erreur de vérification de signature: {e}")
+        print(f"Signature verification error: {e}")
         return False

@@ -19,21 +19,21 @@ import hashlib
 import tempfile
 
 app = Flask(__name__)
-# Note: Dans un environnement de production, il serait préférable de :
-# 1. Séparer la configuration dans un fichier config.py
-# 2. Utiliser des variables d'environnement pour les secrets
-# 3. Implémenter une gestion de session plus robuste avec Redis ou une base de données
-# 4. Ajouter des middlewares de sécurité supplémentaires
-# Ceci est un POC avec une sécurité basique (niveau web design)
-app.secret_key = 'votre_cle_secrete'  # À remplacer par une vraie clé secrète en production
+# Note: In a production environment, it would be better to:
+# 1. Separate configuration into a config.py file
+# 2. Use environment variables for secrets
+# 3. Implement more robust session management with Redis or a database
+# 4. Add additional security middlewares
+# This is a POC with basic security (web design level)
+app.secret_key = 'votre_cle_secrete'  # Replace with a real secret key in production
 
-# Configuration de base pour la session
-app.config['SESSION_COOKIE_HTTPONLY'] = True  # Empêche l'accès aux cookies via JavaScript
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # Protection contre les attaques CSRF
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=15)  # Session expire après 15 minutes
+# Basic session configuration
+app.config['SESSION_COOKIE_HTTPONLY'] = True  # Prevents JavaScript access to cookies
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # CSRF attack protection
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=15)  # Session expires after 15 minutes
 
-# En production, activer ces options :
-# app.config['SESSION_COOKIE_SECURE'] = True  # Force l'utilisation de HTTPS pour les cookies
+# In production, enable these options:
+# app.config['SESSION_COOKIE_SECURE'] = True  # Force HTTPS for cookies
 
 # Dictionnaire pour stocker la progression des VDF
 vdf_progress = {}
@@ -65,14 +65,20 @@ def send_payload(payload, chunk_size=8192, max_retries=3):
         payload_bytes = payload
         
     payload_len = len(payload_bytes)
-    print(f"Sending payload of size: {payload_len} bytes")
+    print(f"\n=== DEBUG: Sending Payload ===")
+    print(f"Payload size: {payload_len} bytes")
+    print(f"Connecting to {host}:{port}...")
     
     retries = 0
     while retries < max_retries:
         try:
+            print("Creating socket connection...")
             with socket.create_connection((host, port), timeout=300) as sock:  # 5-minute timeout
+                print("Socket connected, wrapping with TLS...")
                 with context.wrap_socket(sock, server_hostname=host) as ssock:
-                    # Pour les grands payloads, envoyer par morceaux
+                    print("TLS connection established")
+                    
+                    # For large payloads, send in chunks
                     total_sent = 0
                     
                     # Dynamically adjust chunk size based on payload size
@@ -84,6 +90,8 @@ def send_payload(payload, chunk_size=8192, max_retries=3):
                         actual_chunk_size = 262144   # 256 KB chunks
                     else:
                         actual_chunk_size = chunk_size  # Default (8 KB)
+                    
+                    print(f"Using chunk size: {actual_chunk_size} bytes")
                     
                     # Start sending data in chunks
                     start_time = time.time()
@@ -119,6 +127,7 @@ def send_payload(payload, chunk_size=8192, max_retries=3):
                     print(f"Upload completed: {total_sent}/{payload_len} bytes sent")
                     
                     # Receive the response in chunks
+                    print("Waiting for server response...")
                     buffer = b""
                     while True:
                         try:
@@ -142,16 +151,20 @@ def send_payload(payload, chunk_size=8192, max_retries=3):
                             else:
                                 raise
                     
+                    print("Server response received")
                     return buffer.decode()
         except (socket.timeout, ConnectionResetError) as e:
             retries += 1
             if retries >= max_retries:
+                print(f"Error: Connection failed after {max_retries} attempts - {str(e)}")
                 return f"Error: Connection failed after {max_retries} attempts - {str(e)}"
             print(f"Connection issue ({str(e)}), retrying ({retries}/{max_retries})...")
             time.sleep(2)  # Wait before retrying
         except Exception as e:
+            print(f"Error: {e}")
             return f"Error: {e}"
             
+    print("Maximum retries exceeded")
     return "Error: Maximum retries exceeded."
 
 @app.route("/", methods=["GET"])
@@ -196,7 +209,7 @@ def login():
             print(f"get_keys_from_password response: {response}")
 
             # Properly check if response is True or a success string
-            if response is True:  # Si les clés ont été récupérées avec succès
+            if response is True:  # If keys were successfully retrieved
                 session['username'] = username
                 return redirect(url_for('index'))
             elif isinstance(response, str):
@@ -373,40 +386,43 @@ def send_message():
                 }
                 
                 # Process the file in chunks to avoid memory issues
-                LARGE_FILE_THRESHOLD = 100 * 1024 * 1024  # 100MB threshold for "large files"
+                LARGE_FILE_THRESHOLD = 20 * 1024 * 1024  # 20MB threshold for "large files"
                 
                 if file_info["size"] > LARGE_FILE_THRESHOLD:
                     print(f"Processing large file: {file_info['size']} bytes")
                     
-                    # For extremely large files, process in manageable chunks
-                    chunk_size = 10 * 1024 * 1024  # Process 10MB at a time
-                    file_chunks = []
+                    # Generate a message ID for this file
+                    message_id = str(uuid.uuid4())
                     
-                    with open(file_info["path"], 'rb') as f:
-                        while True:
-                            chunk = f.read(chunk_size)
-                            if not chunk:
-                                break
-                            file_chunks.append(chunk)
+                    # Store the encrypted file locally
+                    encrypted_file_path = store_encrypted_file(file_info["path"], message_id, file_metadata)
                     
-                    # Combine chunks for processing
-                    file_content = b''.join(file_chunks)
+                    # Add the local file path to metadata
+                    file_metadata['local_file_path'] = encrypted_file_path
+                    file_metadata['message_id'] = message_id
                     
-                    # Store the original file path for streaming download later
-                    large_file_id = str(uuid.uuid4())
+                    # Create a minimal payload for large files
+                    # Instead of sending the encrypted content, we'll just send the path
+                    payload2 = send_message_payload(
+                        sender, 
+                        recipient, 
+                        None,  # No content to encrypt
+                        message_type, 
+                        unlock_date, 
+                        Pubkey_enc_recipient,
+                        file_metadata  # Include file metadata with local path
+                    )
                     
+                    # Store the original file path for cleanup
                     if 'large_files' not in session:
                         session['large_files'] = {}
                     
-                    session['large_files'][large_file_id] = {
+                    session['large_files'][message_id] = {
                         'path': file_info["path"],
                         'filename': file_info["original_name"],
                         'mime_type': 'application/octet-stream',
-                        'delete_after': True  # Delete after streaming
+                        'delete_after': True  # Delete after processing
                     }
-                    
-                    # Add large file ID to metadata
-                    file_metadata['large_file_id'] = large_file_id
                 else:
                     # For smaller files, read the entire content
                     with open(file_info["path"], 'rb') as f:
@@ -418,25 +434,24 @@ def send_message():
                             os.remove(file_info["path"])
                         except Exception as e:
                             print(f"Warning: Could not delete temp file: {e}")
-                
-                # After reading the file, send the message
-                payload2 = send_message_payload(
-                    sender, 
-                    recipient, 
-                    file_content, 
-                    message_type, 
-                    unlock_date, 
-                    Pubkey_enc_recipient,
-                    file_metadata
-                )
-                
-                # Clean up the temporary file
-                if os.path.exists(file_info["path"]):
-                    os.remove(file_info["path"])
-                
-            print(f"Message payload size: {len(payload2)} bytes")
-            response = send_payload(payload2)
-            print(response)
+                    
+                    # Send the message with the file content
+                    payload2 = send_message_payload(
+                        sender,
+                        recipient,
+                        file_content,
+                        message_type,
+                        unlock_date,
+                        Pubkey_enc_recipient,
+                        file_metadata
+                    )
+            
+            # After reading the file, send the message
+            payload_json = json.dumps(payload2)
+            print(f"Message payload size: {len(payload_json)} bytes")
+            print(payload_json)
+            response = send_payload(payload_json)
+            print(f"Server response: {response}")
             
             try:
                 response_json = json.loads(response)
@@ -679,13 +694,13 @@ def retrieve_messages():
                         content += "\n\nCe message nécessite la résolution du puzzle VDF pour être déchiffré."
             else:
                 # Message verrouillé par date
-                content = f"Message verrouillé jusqu'au {unlock_date_display}"
+                content = f"Message locked until {unlock_date_display}"
                 signature_verified = False
                 if time_remaining:
-                    content += f"\nTemps restant: {time_remaining}"
+                    content += f"\nTime remaining: {time_remaining}"
             
             decoded_messages.append({
-                "id": msg.get("message_id", "ID inconnu"),
+                "id": msg.get("message_id", "ID unknown"),
                 "sender": sender,
                 "timestamp": timestamp,
                 "content": content,
@@ -705,63 +720,61 @@ def retrieve_messages():
     except Exception as e:
         return render_template("retrieve_messages.html", error=f"Erreur de récupération: {str(e)}")
 
-@app.route("/download_file/<file_id>")
+@app.route("/download_file/<file_id>", methods=["GET"])
 @login_required
 def download_file(file_id):
     """
-    Download a file using the persistent storage system instead of sessions
+    Download a file from the file_storage directory.
     """
-    # Extract the actual file ID from the format 'file_xyz123'
-    if file_id.startswith('file_'):
-        actual_id = file_id[5:]  # Remove 'file_' prefix
-    else:
-        actual_id = file_id
-    
-    # Look up the file hash in the file reference table if we have one
-    if 'file_refs' in session and actual_id in session['file_refs']:
-        file_hash = session['file_refs'][actual_id]
-    else:
-        # Try using the ID directly as a hash (for backward compatibility)
-        file_hash = hashlib.sha256(actual_id.encode()).hexdigest()
-    
-    # Get file content and metadata
-    file_content = get_file_content(file_hash)
-    if not file_content:
-        flash("Fichier non disponible ou expiré", "error")
-        return redirect(url_for('retrieve_messages'))
-    
-    metadata = get_file_metadata(file_hash)
-    
-    # Determine content type
-    content_type = metadata.get('mime_type', 'application/octet-stream')
-    
-    # Determine filename
-    if metadata.get('filename'):
-        filename = metadata['filename']
-    else:
-        # Generate a filename with appropriate extension
-        filename = f"secured_file_{actual_id}"
-        if metadata.get('extension'):
-            if not filename.endswith(metadata['extension']):
-                filename += metadata['extension']
+    try:
+        # Remove 'file_' prefix if present
+        if file_id.startswith('file_'):
+            actual_id = file_id[5:]
         else:
-            # Use MIME type to guess extension
-            if content_type == 'image/jpeg':
-                filename += '.jpg'
-            elif content_type == 'image/png':
-                filename += '.png'
-            elif content_type == 'image/gif':
-                filename += '.gif'
-            elif content_type == 'application/pdf':
-                filename += '.pdf'
-    
-    # Create a response with the file
-    return send_file(
-        BytesIO(file_content),
-        mimetype=content_type,
-        as_attachment=True,
-        download_name=filename
-    )
+            actual_id = file_id
+
+        # Get the file hash from the session
+        if 'file_refs' not in session or actual_id not in session['file_refs']:
+            flash("File reference not found", "error")
+            return redirect(url_for('retrieve_messages'))
+        
+        file_hash = session['file_refs'][actual_id]
+        file_path = Path("file_storage") / file_hash
+        
+        if not file_path.exists():
+            flash("File not found", "error")
+            return redirect(url_for('retrieve_messages'))
+        
+        # Load metadata
+        metadata_path = file_path.with_suffix('.meta')
+        if metadata_path.exists():
+            with open(metadata_path, 'r') as f:
+                metadata = json.load(f)
+            
+            # Get filename and extension
+            filename = metadata.get('filename', f"file_{actual_id}")
+            extension = metadata.get('extension', '')
+            
+            # Add extension if not already present
+            if extension and not filename.lower().endswith(extension.lower()):
+                filename = f"{filename}{extension}"
+            
+            return send_file(
+                str(file_path),
+                as_attachment=True,
+                download_name=filename
+            )
+        
+        # If no metadata, just send the file with a default name
+        return send_file(
+            str(file_path),
+            as_attachment=True,
+            download_name=f"file_{actual_id}"
+        )
+        
+    except Exception as e:
+        print(f"Error downloading file: {e}")
+        return str(e), 500
 
 @app.route("/download_messages_route")
 @login_required
@@ -797,309 +810,144 @@ def download_messages_route():
 @login_required
 def view_local_messages():
     username = session['username']
+    messages = []
     
     try:
-        # Charger les messages depuis le dossier local
+        # Load user's private key
+        with open(f"client_keys/{username}/enc_key.pem", "rb") as f:
+            priv_enc = serialization.load_pem_private_key(f.read(), password=None)
+        
+        # Get all message files
         user_dir = Path(f"client_messages_download/{username}")
         if not user_dir.exists():
-            return render_template("retrieve_messages.html", info="Aucun message téléchargé disponible")
-        
-        # Lire tous les fichiers JSON dans le dossier (messages bruts)
+            return render_template("retrieve_messages.html", messages=[])
+            
         message_files = list(user_dir.glob("*.json"))
-        if not message_files:
-            return render_template("retrieve_messages.html", info="Aucun message téléchargé disponible")
         
-        # Charger les messages
-        user_messages = []
-        for file_path in message_files:
-            if "_solved" in file_path.name or "_decrypted" in file_path.name:  # Ignorer les fichiers déjà traités
-                continue
-                
-            with open(file_path, 'r', encoding='utf-8') as f:
-                try:
+        for msg_file in message_files:
+            try:
+                with open(msg_file, "r", encoding="utf-8") as f:
                     msg = json.load(f)
-                    if msg.get("to") == username:  # Vérifier que c'est bien destiné à cet utilisateur
-                        user_messages.append(msg)
-                except json.JSONDecodeError:
-                    print(f"Erreur de lecture du fichier {file_path}")
-                    continue
-        
-        if not user_messages:
-            return render_template("retrieve_messages.html", info="Aucun message disponible pour votre compte")
-            
-        # Charger la clé privée de déchiffrement pour déchiffrer
-        user_dir = Path(f"client_keys/{username}")
-        try:
-            from cryptography.hazmat.primitives import serialization
-            with open(user_dir / "enc_key.pem", "rb") as f:
-                priv_enc = serialization.load_pem_private_key(f.read(), password=None)
-        except Exception as e:
-            return render_template("retrieve_messages.html", error=f"Erreur de chargement de clé: {e}")
-        
-        # Déchiffrer les messages
-        decoded_messages = []
-        
-        for msg in user_messages:
-            sender = msg.get("from", "Inconnu")
-            timestamp = msg.get("timestamp", "Date inconnue")
-            
-            # Vérifier si le message est encore verrouillé par date
-            unlock_date_str = msg.get("payload", {}).get("unlock_date")
-            is_locked = False
-            unlock_date_display = "Non spécifié"
-            time_remaining = None
-            
-            if unlock_date_str:
-                try:
-                    day, month, year, hour, minute, second = unlock_date_str.split(":")
-                    unlock_datetime = datetime(int(year), int(month), int(day), 
-                                              int(hour), int(minute), int(second))
-                    now = datetime.now()
-                    is_locked = now < unlock_datetime
-                    unlock_date_display = unlock_datetime.strftime("%d/%m/%Y %H:%M:%S")
                     
-                    if is_locked:
-                        time_diff = unlock_datetime - now
-                        days = time_diff.days
-                        hours, remainder = divmod(time_diff.seconds, 3600)
-                        minutes, seconds = divmod(remainder, 60)
-                        
-                        if days > 0:
-                            time_remaining = f"{days} jours, {hours} heures, {minutes} minutes"
-                        elif hours > 0:
-                            time_remaining = f"{hours} heures, {minutes} minutes, {seconds} secondes"
-                        else:
-                            time_remaining = f"{minutes} minutes, {seconds} secondes"
-                except Exception as e:
-                    print(f"Erreur de parsing de date: {e}")
-                    
-            # Extraire les informations du puzzle VDF si présentes
-            vdf_info = None
-            payload = msg.get("payload", {})
-            content = None
-            
-            if "vdf_challenge" in payload and not is_locked:  # On résout le VDF seulement si pas verrouillé par date
-                vdf_data = payload["vdf_challenge"]
-                N = vdf_data.get("N")
-                T = vdf_data.get("T")
-                C = vdf_data.get("C")
+                # Extract message details
+                message_id = msg.get("message_id", "unknown")
+                sender = msg.get("from", "unknown")
+                timestamp = msg.get("timestamp", "")
+                message_type = msg.get("type", "text")
                 
-                if all([N, T, C]):
-                    try:
-                        print(f"Résolution du VDF pour le message {msg.get('message_id')}...")
-                        # Résoudre le puzzle VDF
-                        from vdf_crypto import solve_time_lock_puzzle, decrypt_with_challenge_key
-                        
-                        # Calculer une estimation du temps
-                        estimated_seconds = min(T * 0.00001, 300)  # Estimation grossière
-                        if estimated_seconds < 60:
-                            time_estimate = f"{estimated_seconds:.1f} secondes"
-                        else:
-                            time_estimate = f"{estimated_seconds/60:.1f} minutes"
+                # Get payload and check for VDF challenge
+                payload = msg.get("payload", {})
+                content = None
+                
+                if "vdf_challenge" in payload and not is_locked:  # On résout le VDF seulement si pas verrouillé par date
+                    vdf_data = payload["vdf_challenge"]
+                    N = vdf_data.get("N")
+                    T = vdf_data.get("T")
+                    C = vdf_data.get("C")
+                    
+                    if all([N, T, C]):
+                        try:
+                            print(f"Résolution du VDF pour le message {msg.get('message_id')}...")
+                            # Résoudre le puzzle VDF
+                            from vdf_crypto import solve_time_lock_puzzle, decrypt_with_challenge_key
                             
-                        vdf_info = {
-                            "iterations": T,
-                            "has_challenge": True,
-                            "N": N,
-                            "T": T,
-                            "C": C,
-                            "is_solved": False,
-                            "status": f"Résolution en cours... (temps estimé: {time_estimate})"
-                        }
-                        
-                        # Résoudre le VDF
-                        challenge_key = solve_time_lock_puzzle(N, T, C)
-                        
-                        # Déchiffrer la clé symétrique avec la clé challenge
-                        encrypted_k_msg = base64.b64decode(payload["encrypted_k_msg"])
-                        decrypted_k_msg = decrypt_with_challenge_key(encrypted_k_msg, challenge_key)
-                        
-                        # Mettre à jour le message avec la clé déchiffrée
-                        msg_copy = msg.copy()
-                        msg_copy["payload"]["encrypted_k_msg"] = base64.b64encode(decrypted_k_msg).decode()
-                        
-                        # Supprimer le challenge VDF puisqu'il est résolu
-                        del msg_copy["payload"]["vdf_challenge"]
-                        
-                        # Déchiffrer le message avec la clé déchiffrée
-                        content = decrypt_message(msg_copy, priv_enc)
-                        
-                        # Sauvegarder le message résolu
-                        message_id = msg.get("message_id", "unknown")
-                        timestamp_str = timestamp.replace(" ", "_").replace(":", "-") if timestamp else ""
-                        filename = f"{message_id}_{sender}_{timestamp_str}_solved.json"
-                        
-                        with open(user_dir / filename, "w", encoding="utf-8") as f:
-                            json.dump(msg_copy, f, indent=4)
-                            
-                            # Pour les fichiers, stocker dans la session pour téléchargement
-                            file_result = {"status": "success", "signature_verified": signature_verified}
-                            
-                            if isinstance(content, bytes) or msg.get("type") != "text":
-                                # C'est un fichier, préparer pour téléchargement
-                                file_id = f"file_{message_id}"
-                                actual_id = message_id
-                                
-                                # Stocker le contenu sur le disque au lieu de la session
-                                if isinstance(content, bytes):
-                                    # Détecter le type de fichier
-                                    content_type = "application/octet-stream"  # Type MIME par défaut
-                                    
-                                    # Vérifier les signatures de fichiers courants
-                                    if content.startswith(b'\xFF\xD8\xFF'):  # JPEG
-                                        content_type = "image/jpeg"
-                                    elif content.startswith(b'\x89PNG\r\n\x1A\n') or content[0:8] == b'\x89PNG\r\n\x1A\n':  # PNG
-                                        content_type = "image/png"
-                                    elif content.startswith(b'GIF87a') or content.startswith(b'GIF89a'):  # GIF
-                                        content_type = "image/gif"
-                                    elif content.startswith(b'%PDF'):  # PDF
-                                        content_type = "application/pdf"
-                                    elif len(content) > 50:
-                                        # Pour les debug, afficher les premiers octets
-                                        print(f"Premiers octets du fichier: {content[:50]}")
-                                    
-                                    # Récupérer les métadonnées du fichier
-                                    file_metadata = msg.get("payload", {}).get("file_metadata", {})
-                                    
-                                    # Également détecter à partir de l'extension du nom de fichier
-                                    if file_metadata and 'filename' in file_metadata:
-                                        filename = file_metadata['filename'].lower()
-                                        if filename.endswith('.jpg') or filename.endswith('.jpeg'):
-                                            content_type = "image/jpeg"
-                                        elif filename.endswith('.png'):
-                                            content_type = "image/png"
-                                        elif filename.endswith('.gif'):
-                                            content_type = "image/gif"
-                                        elif filename.endswith('.pdf'):
-                                            content_type = "application/pdf"
-                                    
-                                    # Stocker les métadonnées du fichier
-                                    metadata = {
-                                        'mime_type': content_type,
-                                        'message_id': actual_id
-                                    }
-                                    
-                                    # Ajouter les métadonnées du fichier si disponibles
-                                    if file_metadata:
-                                        metadata.update(file_metadata)
-                                    
-                                    # Stocker le fichier sur le disque
-                                    file_hash = store_file_content(content, actual_id, metadata)
-                                    
-                                    # Stocker la référence dans la session
-                                    if 'file_refs' not in session:
-                                        session['file_refs'] = {}
-                                    session['file_refs'][actual_id] = file_hash
-                                    
-                                    # Préparer le résultat
-                                    file_display_name = file_metadata.get('filename') if file_metadata else f"file_{message_id}"
-                                    file_result["is_file"] = True
-                                    file_result["file_id"] = file_id
-                                    file_result["file_name"] = file_display_name
-                                    file_result["decrypted_content"] = f"[Fichier: {file_display_name}]"
-                                else:
-                                    file_result["decrypted_content"] = content
+                            # Calculer une estimation du temps
+                            estimated_seconds = min(T * 0.00001, 300)  # Estimation grossière
+                            if estimated_seconds < 60:
+                                time_estimate = f"{estimated_seconds:.1f} secondes"
                             else:
-                                file_result["decrypted_content"] = content
+                                time_estimate = f"{estimated_seconds/60:.1f} minutes"
+                                
+                            vdf_info = {
+                                "iterations": T,
+                                "has_challenge": True,
+                                "N": N,
+                                "T": T,
+                                "C": C,
+                                "is_solved": False,
+                                "status": f"Résolution en cours... (temps estimé: {time_estimate})"
+                            }
                             
-                            # Mettre à jour le statut VDF
+                            # Résoudre le VDF
+                            challenge_key = solve_time_lock_puzzle(N, T, C)
+                            
+                            # Déchiffrer la clé symétrique avec la clé challenge
+                            encrypted_k_msg = base64.b64decode(payload["encrypted_k_msg"])
+                            decrypted_k_msg = decrypt_with_challenge_key(encrypted_k_msg, challenge_key)
+                            
+                            # Mettre à jour le message
+                            msg_copy = msg.copy()
+                            msg_copy["payload"]["encrypted_k_msg"] = base64.b64encode(decrypted_k_msg).decode()
+                            
+                            # Supprimer le challenge VDF puisqu'il est résolu
+                            del msg_copy["payload"]["vdf_challenge"]
+                            
+                            # Déchiffrer le message avec la clé déchiffrée
+                            content = decrypt_message(msg_copy, priv_enc)
+                            
+                            # Sauvegarder le message résolu
+                            message_id = msg.get("message_id", "unknown")
+                            timestamp_str = timestamp.replace(" ", "_").replace(":", "-") if timestamp else ""
+                            filename = f"{message_id}_{sender}_{timestamp_str}_solved.json"
+                            
+                            with open(user_dir / filename, "w", encoding="utf-8") as f:
+                                json.dump(msg_copy, f, indent=4)
+                                
                             vdf_info["is_solved"] = True
-                            vdf_info["status"] = "VDF résolu avec succès !"
+                            vdf_info["status"] = "VDF résolu avec succès"
                             
-                    except Exception as e:
-                        print(f"Erreur lors de la résolution du VDF: {e}")
-                        content = f"Erreur lors de la résolution du VDF: {str(e)}"
+                        except Exception as e:
+                            print(f"Erreur lors de la résolution du VDF: {e}")
+                            vdf_info["status"] = f"Erreur: {str(e)}"
+                            content = None
+                    else:
                         vdf_info = {
-                            "iterations": T,
                             "has_challenge": True,
-                            "N": N,
-                            "T": T,
-                            "C": C,
-                            "is_solved": False,
-                            "status": f"Erreur lors de la résolution: {str(e)}"
+                            "status": "Paramètres VDF incomplets"
                         }
                 else:
-                    vdf_info = {
-                        "iterations": T if T else "inconnu",
-                        "has_challenge": True,
-                        "status": "Paramètres VDF incomplets"
+                    vdf_info = {"has_challenge": False}
+                
+                # Check if this is a large file
+                file_metadata = payload.get("file_metadata", {})
+                local_file_path = file_metadata.get("local_file_path")
+                
+                if local_file_path:
+                    # This is a large file, use the local path
+                    content = {
+                        "type": "large_file",
+                        "path": local_file_path,
+                        "metadata": file_metadata
                     }
-            
-            # Si pas de VDF ou si le VDF n'a pas été résolu, essayer de déchiffrer normalement
-            if content is None and not is_locked:
-                try:
-                    content = decrypt_message(msg, priv_enc)
-                    if isinstance(content, bytes):
-                        message_type = msg.get("type", "text")
-                        content = f"[Fichier {message_type}]"
-                        
-                        # Stocker le contenu binaire sur le disque
-                        file_id = f"file_{msg.get('message_id', str(uuid.uuid4()))}"
-                        actual_id = msg.get('message_id', str(uuid.uuid4()))
-                        
-                        # Détecter le type de fichier
-                        content_type = "application/octet-stream"  # Type MIME par défaut
-                        if content.startswith(b'\xFF\xD8\xFF'):  # Signature JPEG
-                            content_type = "image/jpeg"
-                        elif content.startswith(b'\x89PNG\r\n\x1A\n'):  # Signature PNG
-                            content_type = "image/png"
-                        elif content.startswith(b'GIF87a') or content.startswith(b'GIF89a'):  # Signature GIF
-                            content_type = "image/gif"
-                        elif content.startswith(b'%PDF'):  # Signature PDF
-                            content_type = "application/pdf"
-                        
-                        # Stocker les métadonnées du fichier
-                        file_metadata = msg.get("payload", {}).get("file_metadata", {})
-                        
-                        # Ajouter le type MIME aux métadonnées
-                        metadata = {
-                            'mime_type': content_type,
-                            'message_id': actual_id
-                        }
-                        
-                        # Ajouter les métadonnées du fichier si disponibles
-                        if file_metadata:
-                            metadata.update(file_metadata)
-                            
-                            # Mettre à jour l'affichage pour inclure le nom du fichier
-                            if 'filename' in file_metadata:
-                                content_display = f"[Fichier: {file_metadata['filename']}]"
-                        
-                        # Stocker le fichier sur le disque
-                        file_hash = store_file_content(content, actual_id, metadata)
-                        
-                        # Stocker la référence dans la session
-                        if 'file_refs' not in session:
-                            session['file_refs'] = {}
-                        session['file_refs'][actual_id] = file_hash
-                        
-                        content = content_display
-                except Exception as e:
-                    content = f"Erreur de déchiffrement: {e}"
-            elif is_locked:
-                content = f"Message verrouillé jusqu'au {unlock_date_display}"
-                if time_remaining:
-                    content += f"\nTemps restant: {time_remaining}"
-            
-            decoded_messages.append({
-                "id": msg.get("message_id", "ID inconnu"),
-                "sender": sender,
-                "timestamp": timestamp,
-                "content": content,
-                "is_locked": is_locked,
-                "unlock_date": unlock_date_display,
-                "time_remaining": time_remaining,
-                "vdf_info": vdf_info
-            })
-            
-        # Trier par date (plus récent en premier)
-        decoded_messages.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+                elif content is None:
+                    # Try to decrypt the message
+                    try:
+                        content = decrypt_message(msg, priv_enc)
+                    except Exception as e:
+                        print(f"Erreur lors du déchiffrement: {e}")
+                        content = f"Erreur de déchiffrement: {str(e)}"
+                
+                messages.append({
+                    "id": message_id,
+                    "sender": sender,
+                    "timestamp": timestamp,
+                    "type": message_type,
+                    "content": content,
+                    "vdf_info": vdf_info
+                })
+                
+            except Exception as e:
+                print(f"Erreur lors du traitement du message {msg_file}: {e}")
+                continue
         
-        return render_template("retrieve_messages.html", messages=decoded_messages, offline_mode=True)
+        # Sort messages by timestamp
+        messages.sort(key=lambda x: x["timestamp"], reverse=True)
+        
+        return render_template("retrieve_messages.html", messages=messages)
         
     except Exception as e:
+        print(f"Erreur lors de la récupération des messages: {e}")
         return render_template("retrieve_messages.html", error=f"Erreur de récupération: {str(e)}")
-
 
 @app.route("/solve_vdf_local", methods=["POST"])
 @login_required
@@ -1572,6 +1420,56 @@ def before_request():
         # Update timestamp
         with open(last_cleanup_file, 'w') as f:
             f.write(str(current_time))
+
+def store_encrypted_file(file_path, message_id, file_metadata):
+    """
+    Store an encrypted file locally in the messages_files directory.
+    
+    Args:
+        file_path (str): Path to the file to encrypt and store
+        message_id (str): Unique identifier for the message
+        file_metadata (dict): Metadata about the file
+        
+    Returns:
+        str: Path to the stored encrypted file
+    """
+    # Create messages_files directory if it doesn't exist
+    messages_files_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'messages_files')
+    os.makedirs(messages_files_dir, exist_ok=True)
+    
+    # Generate path for the encrypted file
+    encrypted_file_path = os.path.join(messages_files_dir, f"{message_id}.enc")
+    
+    # Read and encrypt the file content
+    with open(file_path, 'rb') as f:
+        file_content = f.read()
+    
+    # Encrypt the file content
+    encrypted_content = encrypt_file_content(file_content)
+    
+    # Store the encrypted content
+    with open(encrypted_file_path, 'wb') as f:
+        f.write(encrypted_content)
+    
+    return encrypted_file_path
+
+def encrypt_file_content(content):
+    """
+    Encrypt file content using the same encryption method as messages.
+    
+    Args:
+        content (bytes): The content to encrypt
+        
+    Returns:
+        bytes: The encrypted content
+    """
+    # TODO: Implement the same encryption method used for messages
+    # For now, we'll use a simple XOR encryption as a placeholder
+    key = b'ICR_PROJECT_KEY'  # This should be replaced with proper key management
+    encrypted = bytearray()
+    for i, byte in enumerate(content):
+        encrypted.append(byte ^ key[i % len(key)])
+    return bytes(encrypted)
 
 if __name__ == "__main__":
     app.run(debug=True, port=5050)

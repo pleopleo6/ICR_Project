@@ -70,54 +70,54 @@ def save_keys(username, priv_sign, pub_sign, priv_enc, pub_enc):
     return ret  
 
 def get_keys_from_password(username, password, response_json):
-    # response_json → dictionnaire
+    # response_json → dictionary
     if isinstance(response_json, str):
         response_json = json.loads(response_json)
 
     if response_json.get("status") == "error":
         return f"Server error: {response_json.get('message')}"
 
-    # Vérifie que les champs attendus sont présents
+    # Check that expected fields are present
     required_fields = ["auth_key", "Encrypted_sign_key", "Encrypted_enc_key", "PubKey_sign", "PubKey_enc"]
     if not all(key in response_json for key in required_fields):
         print(f"Server response: {response_json}")
         return "Required fields missing in server response"
 
     try:
-        # Recrée le master_key depuis le username comme à la création
+        # Recreate master_key from username as during creation
         salt_argon2 = derive_salt_from_username(username)
         master_key = hash_password_argon2id(password, salt_argon2)
 
-        # Derive localement auth_key et data_key
+        # Derive auth_key and data_key locally
         computed_auth_key = derive_encryption_key(master_key, info=b"auth_key")
         data_key = derive_encryption_key(master_key, info=b"data_key")
 
-        # Vérifie que l'auth_key correspond à celle stockée sur le serveur
+        # Verify that auth_key matches the one stored on the server
         received_auth_key_b64 = response_json["auth_key"]
         computed_auth_key_b64 = base64.b64encode(computed_auth_key).decode()
 
         if received_auth_key_b64 != computed_auth_key_b64:
             print("Auth key does not match!")
-            return "Mot de passe incorrect"
+            return "Incorrect password"
 
-        # Déchiffre les clés privées
+        # Decrypt private keys
         encrypted_sign_key = base64.b64decode(response_json["Encrypted_sign_key"])
         encrypted_enc_key = base64.b64decode(response_json["Encrypted_enc_key"])
 
         try:
-            # Déchiffre la clé de signature
+            # Decrypt signature key
             priv_sign_bytes = decrypt_private_key(encrypted_sign_key, data_key)
             priv_sign = Ed25519PrivateKey.from_private_bytes(priv_sign_bytes)
 
-            # Déchiffre la clé d'encryption
+            # Decrypt encryption key
             priv_enc_bytes = decrypt_private_key(encrypted_enc_key, data_key)
             priv_enc = X25519PrivateKey.from_private_bytes(priv_enc_bytes)
 
-            # Extrait les clés publiques
+            # Extract public keys
             pub_sign = priv_sign.public_key()
             pub_enc = priv_enc.public_key()
 
-            # Vérifie les clés publiques
+            # Verify public keys
             server_pub_sign = base64.b64decode(response_json["PubKey_sign"])
             server_pub_enc = base64.b64decode(response_json["PubKey_enc"])
 
@@ -134,13 +134,13 @@ def get_keys_from_password(username, password, response_json):
                 print("Public keys derived from password don't match server keys!")
                 return "Wrong password"
 
-            # Sauvegarde locale
+            # Local save
             ret = save_keys(username, priv_sign, pub_sign, priv_enc, pub_enc)
             return ret
 
         except Exception as e:
             print(f"Error decrypting keys: {str(e)}")
-            return "Mot de passe incorrect ou erreur de déchiffrement"
+            return "Incorrect password or decryption error"
 
     except KeyError as e:
         print(f"Missing key in server response: {e}")
@@ -216,14 +216,14 @@ def reset_password(new_password, username):
     priv_sign = load_private_key(user_dir / "sign_key.pem")
     priv_enc  = load_private_key(user_dir / "enc_key.pem")
 
-    # 1. Recalculer les clés dérivées à partir du nouveau mot de passe
+    # 1. Recalculate derived keys from new password
     salt_argon2 = derive_salt_from_username(username)
     master_key = hash_password_argon2id(new_password, salt_argon2)
 
     auth_key = derive_encryption_key(master_key, info=b"auth_key")
     data_key = derive_encryption_key(master_key, info=b"data_key")
 
-    # 2. Extraire et rechiffrer les clés privées existantes
+    # 2. Extract and re-encrypt existing private keys
     privkey_sign_bytes = priv_sign.private_bytes(
         encoding=serialization.Encoding.Raw,
         format=serialization.PrivateFormat.Raw,
@@ -238,7 +238,7 @@ def reset_password(new_password, username):
     encrypted_sign_key = base64.b64encode(encrypt_private_key(privkey_sign_bytes, data_key)).decode()
     encrypted_enc_key = base64.b64encode(encrypt_private_key(privkey_enc_bytes, data_key)).decode()
 
-    # 3. Reprendre les clés publiques déjà existantes
+    # 3. Reuse existing public keys
     pub_sign = priv_sign.public_key()
     pub_enc = priv_enc.public_key()
 
@@ -252,7 +252,7 @@ def reset_password(new_password, username):
         format=serialization.PublicFormat.Raw
     )).decode()
 
-    # 4. Préparer le message à envoyer
+    # 4. Prepare message to send
     unsigned_payload = {
         "action": "reset_password",
         "username": username,
@@ -263,79 +263,84 @@ def reset_password(new_password, username):
         "Encrypted_enc_key": encrypted_enc_key
     }
 
-    # 5. Signer le message avec l'ancienne clé de signature
+    # 5. Sign message with existing signature key
     message = json.dumps(unsigned_payload, sort_keys=True).encode()
     signature = priv_sign.sign(message)
     signature_b64 = base64.b64encode(signature).decode()
 
-    # 6. Ajouter la signature au payload
+    # 6. Add signature to payload
     final_payload = dict(unsigned_payload)
     final_payload["signature"] = signature_b64
 
     return json.dumps(final_payload)
 
 def send_message_payload(sender, recipient, content, message_type, unlock_date, Pubkey_recipient, file_metadata=None):
-    # 1. Générer une clé symétrique (ChaCha20)
+    # 1. Generate a symmetric key (ChaCha20)
     k_msg = generate_symmetric_key()
 
-    # 2. Chiffrer le message avec cette clé
-    # Encoder seulement si le contenu est déjà une chaîne (texte) et pas des bytes
-    if isinstance(content, str):
-        content_bytes = content.encode()
+    # 2. Encrypt message with this key only if we have content
+    if content is not None:
+        # For regular content, encrypt it
+        if isinstance(content, str):
+            content_bytes = content.encode()
+        else:
+            content_bytes = content
+            
+        ciphertext, nonce = encrypt_message_symmetric(content_bytes, k_msg)
     else:
-        content_bytes = content
-        
-    ciphertext, nonce = encrypt_message_symmetric(content_bytes, k_msg)
+        # No content to encrypt
+        ciphertext = None
+        nonce = None
 
-    # 3. Chiffrer la clé avec la clé publique du destinataire
+    # 3. Encrypt key with recipient's public key
     pubkey_recipient_bytes = base64.b64decode(Pubkey_recipient)
     encrypted_k_msg = encrypt_key_asymmetric(k_msg, pubkey_recipient_bytes)
 
-    # Calculer le temps jusqu'au déverrouillage pour adapter le VDF
+    # Calculate time until unlocking to adapt VDF
     has_vdf_puzzle = False
     vdf_challenge = None
     
     # Non-used code (VDF created on server side)
     if unlock_date:
         try:
-            # Convertir le format de date en objet datetime
+            # Convert date format to datetime object
             day, month, year, hour, minute, second = unlock_date.split(":")
             unlock_datetime = datetime(int(year), int(month), int(day), 
                                      int(hour), int(minute), int(second))
             now = datetime.now()
             
-            # Vérifier si la date de déverrouillage est dans le futur
+            # Verify if unlocking date is in the future
             if unlock_datetime > now:
-                # Calculer le temps restant en secondes
+                # Calculate remaining time in seconds
                 time_diff = (unlock_datetime - now).total_seconds()
                 
-                # Si le délai est inférieur à 5 minutes, on ne met pas de VDF
-                if time_diff > 300:  # Plus de 5 minutes
-                    # Générer une clé de défi
+                # If delay is less than 5 minutes, no VDF
+                if time_diff > 300:  # More than 5 minutes
+                    # Generate a challenge key
                     challenge_key = generate_symmetric_key()
                     
-                    # Déterminer la difficulté du puzzle
-                    # Plus la date est éloignée, plus le puzzle est long à résoudre
-                    # Mais on limite le temps à 5 minutes maximum pour ne pas bloquer le navigateur
-                    vdf_seconds = min(time_diff / 120, 300)  # ~0.8% du temps total, max 5 min
+                    # Determine puzzle difficulty
+                    # The further the date, the longer the puzzle to solve
+                    # But we limit the time to 5 minutes maximum to not block the browser
+                    vdf_seconds = min(time_diff / 120, 300)  # ~0.8% of total time, max 5 min
                     
-                    print(f"Génération d'un puzzle VDF adapté: {vdf_seconds:.2f} secondes pour un délai de {time_diff:.2f} secondes")
+                    print(f"Generating adapted VDF puzzle: {vdf_seconds:.2f} seconds for a delay of {time_diff:.2f} seconds")
                     
-                    # Créer le time-lock puzzle
+                    # Create time-lock puzzle
                     from vdf_crypto import generate_time_lock_puzzle, encrypt_with_challenge_key, store_original_encrypted_k_msg
                     N, T, C = generate_time_lock_puzzle(challenge_key, vdf_seconds)
                     
-                    # Double chiffrement: chiffrer la clé déjà chiffrée avec la clé challenge
+                    # Double encryption: encrypt already encrypted key with challenge key
                     double_encrypted = encrypt_with_challenge_key(encrypted_k_msg, challenge_key)
                     
-                    # Stocker l'original en mémoire/fichier pour récupération possible
+                    # Store original in memory/file for possible recovery
                     message_id = str(uuid.uuid4())
                     store_original_encrypted_k_msg(message_id, encrypted_k_msg)
                     
-                    # Remplacer la clé chiffrée originale par la version double-chiffrée
+                    # Replace original encrypted key with double-encrypted version
                     encrypted_k_msg = double_encrypted
                     
-                    # Définir le challenge VDF
+                    # Define VDF challenge
                     has_vdf_puzzle = True
                     vdf_challenge = {
                         "N": N,
@@ -344,42 +349,46 @@ def send_message_payload(sender, recipient, content, message_type, unlock_date, 
                         "unlock_delay_seconds": time_diff
                     }
                     
-                    print(f"Puzzle VDF généré: N={N}, T={T}, C={C}")
+                    print(f"Generated VDF puzzle: N={N}, T={T}, C={C}")
         except Exception as e:
-            print(f"Erreur lors de la génération du VDF basé sur la date: {e}")
-            # Continuer sans VDF en cas d'erreur
+            print(f"Error generating VDF based on date: {e}")
+            # Continue without VDF in case of error
 
-    # 4. Construire le message D (non signé)
+    # 4. Build message D (unsigned)
     D = {
-        "ciphertext": base64.b64encode(ciphertext).decode(),
-        "nonce": base64.b64encode(nonce).decode(),
         "encrypted_k_msg": base64.b64encode(encrypted_k_msg).decode(),
         "unlock_date": unlock_date,
-        "is_binary": not isinstance(content, str)  # Marquer si c'est un fichier binaire
+        "is_binary": not isinstance(content, str) if content is not None else True  # Mark if it's a binary file
     }
     
-    # Ajouter les métadonnées du fichier si c'est un fichier
+    # Add ciphertext and nonce only if we have content
+    if content is not None:
+        D["ciphertext"] = base64.b64encode(ciphertext).decode()
+        if nonce is not None:  # Only add nonce if we actually encrypted the content
+            D["nonce"] = base64.b64encode(nonce).decode()
+    
+    # Add file metadata if it's a file
     if file_metadata and message_type != "text":
         D["file_metadata"] = file_metadata
         
-    # Ajouter le challenge VDF si présent
+    # Add VDF challenge if present
     if has_vdf_puzzle:
         D["vdf_challenge"] = vdf_challenge
 
-    # 5. Hacher D pour signature
+    # 5. Hash D for signature
     hashed_D = hash_dict(D)  # → bytes
 
-    # 6. Charger la clé privée de signature du sender
+    # 6. Load sender's signature private key
     sender_dir = Path(f"client_keys/{sender}")
     priv_sign = load_private_key(sender_dir / "sign_key.pem")
     if not isinstance(priv_sign, Ed25519PrivateKey):
         raise ValueError("Sender private key must be Ed25519")
 
-    # 7. Signer le hash de D
+    # 7. Sign hash of D
     signature = priv_sign.sign(hashed_D)
     signature_b64 = base64.b64encode(signature).decode()
 
-    # 8. Créer le message final
+    # 8. Create final message
     msg = {
         "message_id": str(uuid.uuid4()) if not has_vdf_puzzle else message_id,
         "from": sender,
@@ -389,72 +398,95 @@ def send_message_payload(sender, recipient, content, message_type, unlock_date, 
         "signature": signature_b64
     }
 
-    return json.dumps({"action": "send_message", "message": msg})
+    # Debug prints for large files
+    if file_metadata and "local_file_path" in file_metadata:
+        print("\n=== DEBUG: Large File Message ===")
+        print(f"Message ID: {msg['message_id']}")
+        print(f"From: {msg['from']}")
+        print(f"To: {msg['to']}")
+        print(f"Type: {msg['type']}")
+        print("Payload:")
+        print(f"  - encrypted_k_msg: {msg['payload']['encrypted_k_msg'][:50]}...")
+        print(f"  - unlock_date: {msg['payload']['unlock_date']}")
+        print(f"  - is_binary: {msg['payload']['is_binary']}")
+        print("File Metadata:")
+        for key, value in msg['payload']['file_metadata'].items():
+            print(f"  - {key}: {value}")
+        print(f"Signature: {msg['signature'][:50]}...")
+        print("===============================\n")
+
+    # Return the raw message instead of JSON encoding it
+    return {"action": "send_message", "message": msg}
 
 def decrypt_message(message, recipient_private_key, sender_pubkey_sign=None):
     """
-    Déchiffre un message reçu et vérifie la signature si la clé publique du sender est fournie.
+    Decrypt a received message and verify signature if sender's public key is provided.
     
     Args:
-        message (dict): Le message à déchiffrer
-        recipient_private_key (X25519PrivateKey): La clé privée du destinataire
-        sender_pubkey_sign (bytes, optional): La clé publique de signature de l'expéditeur (format Raw)
+        message (dict): The message to decrypt
+        recipient_private_key (X25519PrivateKey): The recipient's private key
+        sender_pubkey_sign (bytes, optional): The sender's signature public key (format Raw)
     
     Returns:
-        dict: Contient le contenu déchiffré et le statut de vérification de la signature
+        dict: Contains decrypted content and signature verification status
     """
     try:
-        # Extraire les données du payload
+        # Extract data from payload
         payload = message.get("payload", {})
         message_id = message.get("message_id")
         sender = message.get("from", "unknown")
         
         if not payload:
-            return {"content": "Erreur: payload vide", "signature_verified": False}
+            return {"content": "Error: empty payload", "signature_verified": False}
             
         encrypted_k_msg_b64 = payload.get("encrypted_k_msg")
         nonce_b64 = payload.get("nonce")
         ciphertext_b64 = payload.get("ciphertext")
         vdf_challenge = payload.get("vdf_challenge")
-        is_binary = payload.get("is_binary", False)  # Par défaut, considérer comme texte
+        is_binary = payload.get("is_binary", False)  # Default to consider as text
         
-        # Extraire la signature
+        # Check if this is a large file
+        file_metadata = payload.get("file_metadata", {})
+        local_file_path = file_metadata.get("local_file_path")
+        
+        # Extract signature
         signature_b64 = message.get("signature")
         
-        if not all([encrypted_k_msg_b64, nonce_b64, ciphertext_b64]):
-            return {"content": "Erreur: message incomplet", "signature_verified": False}
+        # For large files, we don't need ciphertext and nonce
+        if local_file_path:
+            if not encrypted_k_msg_b64:
+                return {"content": "Error: missing encrypted key for large file", "signature_verified": False}
+        else:
+            # For normal messages, we need all components
+            if not all([encrypted_k_msg_b64, nonce_b64, ciphertext_b64]):
+                return {"content": "Error: incomplete message", "signature_verified": False}
             
-        # Convertir de base64 en bytes
+        # Convert from base64 to bytes
         encrypted_k_msg = base64.b64decode(encrypted_k_msg_b64)
-        nonce = base64.b64decode(nonce_b64)
-        ciphertext = base64.b64decode(ciphertext_b64)
         
-        # Vérifier la signature si la clé publique est fournie
+        # For normal messages, convert other components
+        if not local_file_path:
+            nonce = base64.b64decode(nonce_b64)
+            ciphertext = base64.b64decode(ciphertext_b64)
+        
+        # Verify signature if public key is provided
         signature_verified = False
-        if signature_b64 and sender_pubkey_sign:
+        if sender_pubkey_sign and signature_b64:
             try:
-                # Convertir la signature de base64 en bytes
-                signature = base64.b64decode(signature_b64)
-                
-                # Hacher le payload pour vérifier la signature
+                # Hash the payload for signature verification
                 payload_hash = hash_dict(payload)
-                
-                # Vérifier la signature
-                from crypto_utils import verify_signature
-                signature_verified = verify_signature(payload_hash, signature, sender_pubkey_sign)
-                
-                if signature_verified:
-                    print(f"Signature du message de {sender} vérifiée avec succès.")
-                else:
-                    print(f"ATTENTION: La signature du message de {sender} est invalide!")
+                signature = base64.b64decode(signature_b64)
+                sender_pubkey = Ed25519PublicKey.from_public_bytes(sender_pubkey_sign)
+                sender_pubkey.verify(signature, payload_hash)
+                signature_verified = True
             except Exception as e:
-                print(f"Erreur lors de la vérification de la signature: {e}")
+                print(f"Signature verification failed: {e}")
         
-        # Résoudre le VDF challenge si présent
+        # Solve VDF challenge if present
         if vdf_challenge:
-            print("Message protégé par un time-lock puzzle. Déchiffrement en cours...")
+            print("Message protected by a time-lock puzzle. Decryption in progress...")
             
-            # Vérifier d'abord si le message est encore verrouillé par date
+            # First verify if message is still locked by date
             unlock_date_str = payload.get("unlock_date")
             unlock_date_passed = False
             
@@ -462,107 +494,124 @@ def decrypt_message(message, recipient_private_key, sender_pubkey_sign=None):
                 try:
                     day, month, year, hour, minute, second = unlock_date_str.split(":")
                     unlock_datetime = datetime(int(year), int(month), int(day), 
-                                              int(hour), int(minute), int(second))
+                                            int(hour), int(minute), int(second))
                     now = datetime.now()
                     unlock_date_passed = now >= unlock_datetime
                 except Exception as e:
-                    print(f"Erreur lors de la vérification de la date: {e}")
+                    print(f"Error verifying date: {e}")
             
-            # Si la date est passée, le serveur devrait nous donner la clé
-            # Le client ne doit pas accéder directement aux fichiers du serveur
+            # If date has passed, server should give us the key
+            # Client must not access server files directly
             if unlock_date_passed or not unlock_date_str:
-                return {"content": "Message verrouillé : demandez la clé au serveur", "signature_verified": signature_verified}
+                return {"content": "Message locked: ask server for key", "signature_verified": signature_verified}
             
-            # Si la date n'est pas passée, il faut résoudre le puzzle
+            # If date hasn't passed, we need to solve the puzzle
             N = vdf_challenge.get("N")
             T = vdf_challenge.get("T")
             C = vdf_challenge.get("C")
             
             if all([N, T, C]):
-                # Résoudre le puzzle pour obtenir la clé de défi
-                print(f"Résolution du puzzle VDF avec {T} itérations...")
+                # Solve puzzle to get challenge key
+                print(f"Solving VDF puzzle with {T} iterations...")
                 challenge_key = solve_time_lock_puzzle(N, T, C)
-                # Déchiffrer la clé symétrique avec la clé de défi
+                # Decrypt symmetric key with challenge key
                 encrypted_k_msg = decrypt_with_challenge_key(encrypted_k_msg, challenge_key)
             else:
-                return {"content": "Erreur: paramètres de puzzle incomplets", "signature_verified": signature_verified}
+                return {"content": "Error: incomplete puzzle parameters", "signature_verified": signature_verified}
         
-        # Déchiffrer la clé symétrique avec la clé privée du destinataire
+        # Decrypt symmetric key with recipient's private key
         from crypto_utils import decrypt_key_asymmetric
         k_msg = decrypt_key_asymmetric(encrypted_k_msg, recipient_private_key)
         
-        # Déchiffrer le message avec la clé symétrique
+        # If this is a large file, return the local file path instead of decrypting content
+        if local_file_path:
+            print(f"Large file detected, returning local path: {local_file_path}")
+            return {
+                "content": local_file_path,
+                "signature_verified": signature_verified,
+                "is_large_file": True,
+                "file_metadata": file_metadata
+            }
+        
+        # For normal messages, decrypt the content
         from crypto_utils import decrypt_message_symmetric
         decrypted_content = decrypt_message_symmetric(ciphertext, nonce, k_msg)
         
-        # Si le contenu est binaire, le retourner tel quel, sinon le décoder en texte
-        if is_binary:
-            return {"content": decrypted_content, "signature_verified": signature_verified}  # Retourne les bytes bruts
-        else:
-            return {"content": decrypted_content.decode('utf-8'), "signature_verified": signature_verified}  # Convertit en texte
+        # For text messages, decode to string
+        if not is_binary:
+            try:
+                decrypted_content = decrypted_content.decode('utf-8')
+            except UnicodeDecodeError:
+                print("Warning: Could not decode content as UTF-8, returning as bytes")
+        
+        return {
+            "content": decrypted_content,
+            "signature_verified": signature_verified,
+            "is_large_file": False
+        }
         
     except Exception as e:
-        print(f"Erreur lors du déchiffrement du message: {e}")
-        return {"content": f"Erreur de déchiffrement: {str(e)}", "signature_verified": False}
+        print(f"Error decrypting message: {e}")
+        return {"content": f"Error decrypting: {str(e)}", "signature_verified": False}
 
 def download_messages(username, server_response=None):
     """
-    Télécharge tous les messages d'un utilisateur et les stocke dans un dossier local.
+    Download all messages for a user and store them in a local directory.
     
     Args:
-        username (str): Nom d'utilisateur
-        server_response (str, optional): Réponse du serveur contenant les messages. Si None, les messages seront demandés au serveur.
+        username (str): User name
+        server_response (str, optional): Server response containing messages. If None, messages will be requested from server.
         
     Returns:
-        dict: Informations sur les messages téléchargés
+        dict: Information about downloaded messages
     """
-    # Créer le dossier de destination s'il n'existe pas
+    # Create destination directory if it doesn't exist
     download_dir = Path(f"client_messages_download/{username}")
     download_dir.mkdir(parents=True, exist_ok=True)
     
-    # Si aucune réponse serveur n'est fournie, demander les messages au serveur
+    # If no server response is provided, request messages from server
     if server_response is None:
-        # Créer la requête
+        # Create request
         request = {
             "action": "get_messages",
             "username": username
         }
         
-        # Envoyer la requête au serveur (à implémenter dans l'application principale)
+        # Send request to server (to be implemented in main application)
         # server_response = send_request_to_server(json.dumps(request))
         return {
             "status": "error",
-            "message": "Aucune réponse serveur fournie. Cette fonction doit être appelée depuis l'application."
+            "message": "No server response provided. This function must be called from the main application."
         }
     
-    # Traiter la réponse du serveur
+    # Process server response
     if isinstance(server_response, str):
         server_response = json.loads(server_response)
         
     if server_response.get("status") != "success" or "messages" not in server_response:
         return {
             "status": "error",
-            "message": f"Erreur serveur: {server_response.get('message', 'Réponse invalide')}"
+            "message": f"Server error: {server_response.get('message', 'Invalid response')}"
         }
         
     messages = server_response["messages"]
     if not messages:
         return {
             "status": "info",
-            "message": "Aucun message à télécharger"
+            "message": "No messages to download"
         }
     
-    # Charger la clé privée de déchiffrement
+    # Load decryption private key
     try:
         user_dir = Path(f"client_keys/{username}")
         priv_enc = load_private_key(user_dir / "enc_key.pem")
     except Exception as e:
         return {
             "status": "error",
-            "message": f"Erreur de chargement de la clé privée: {e}"
+            "message": f"Error loading private key: {e}"
         }
     
-    # Déchiffrer et sauvegarder chaque message
+    # Decrypt and save each message
     downloaded_messages = []
     locked_messages = []
     errors = []
@@ -573,22 +622,22 @@ def download_messages(username, server_response=None):
             sender = msg.get("from", "unknown")
             timestamp = msg.get("timestamp", "")
             
-            # Créer un nom de fichier unique pour le message
+            # Create unique filename for message
             timestamp_str = timestamp.replace(" ", "_").replace(":", "-") if timestamp else ""
             filename = f"{message_id}_{sender}_{timestamp_str}.json"
             
-            # Sauvegarder le message brut
+            # Save raw message
             with open(download_dir / filename, "w", encoding="utf-8") as f:
                 json.dump(msg, f, indent=4)
                 
-            # Vérifier si le message peut être déchiffré
+            # Verify if message can be decrypted
             payload = msg.get("payload", {})
             unlock_date_str = payload.get("unlock_date")
             vdf_challenge = payload.get("vdf_challenge")
             
             is_locked = False
             
-            # Vérifier si le message est verrouillé par date
+            # Verify if message is locked by date
             if unlock_date_str:
                 try:
                     day, month, year, hour, minute, second = unlock_date_str.split(":")
@@ -597,20 +646,20 @@ def download_messages(username, server_response=None):
                     now = datetime.now()
                     is_locked = now < unlock_datetime
                 except Exception as e:
-                    print(f"Erreur de parsing de date: {e}")
+                    print(f"Error parsing date: {e}")
             
-            # Si le message n'est pas verrouillé par date, essayer de le déchiffrer
+            # If message is not locked by date, try to decrypt it
             if not is_locked:
                 try:
                     content = decrypt_message(msg, priv_enc)
                     
                     if isinstance(content, str):
-                        # Sauvegarder le contenu déchiffré pour les messages texte
+                        # Save decrypted content for text messages
                         content_filename = f"{message_id}_{sender}_{timestamp_str}_decrypted.txt"
                         with open(download_dir / content_filename, "w", encoding="utf-8") as f:
                             f.write(content)
                     else:
-                        # Sauvegarder le contenu binaire
+                        # Save binary content
                         content_filename = f"{message_id}_{sender}_{timestamp_str}_decrypted.bin"
                         with open(download_dir / content_filename, "wb") as f:
                             f.write(content)
@@ -624,7 +673,7 @@ def download_messages(username, server_response=None):
                     })
                 except Exception as e:
                     if vdf_challenge:
-                        # Si le déchiffrement échoue et qu'il y a un VDF challenge, c'est probablement à cause du VDF
+                        # If decryption fails and there's a VDF challenge, it's probably because of the VDF
                         locked_messages.append({
                             "id": message_id,
                             "sender": sender,
@@ -637,7 +686,7 @@ def download_messages(username, server_response=None):
                             "error": str(e)
                         })
             else:
-                # Message verrouillé par date
+                # Message locked by date
                 locked_messages.append({
                     "id": message_id,
                     "sender": sender,
@@ -665,45 +714,45 @@ def download_messages(username, server_response=None):
 
 def solve_vdf_for_message(username, message_id, server_response=None):
     """
-    Résout manuellement le VDF pour un message spécifique.
+    Solve VDF manually for a specific message.
     
     Args:
-        username (str): Nom d'utilisateur
-        message_id (str): ID du message
-        server_response (str, optional): Réponse du serveur contenant le message. Si None, le message sera demandé.
+        username (str): User name
+        message_id (str): Message ID
+        server_response (str, optional): Server response containing the message. If None, the message will be requested.
         
     Returns:
-        dict: Résultat de l'opération
+        dict: Operation result
     """
     try:
         if server_response is None:
             return {
                 "status": "error",
-                "message": "Aucune réponse serveur fournie. Cette fonction doit être appelée depuis l'application."
+                "message": "No server response provided. This function must be called from the main application."
             }
         
         if isinstance(server_response, str):
             server_response = json.loads(server_response)
             
-        # Extraire le message des données du serveur
+        # Extract message from server data
         message = server_response.get("message", {})
         if not message:
             return {
                 "status": "error",
-                "message": "Message non trouvé dans la réponse serveur"
+                "message": "Message not found in server response"
             }
             
-        # Vérifier si le message a un VDF challenge
+        # Verify if message has a VDF challenge
         payload = message.get("payload", {})
         vdf_challenge = payload.get("vdf_challenge")
         
         if not vdf_challenge:
             return {
                 "status": "error",
-                "message": "Ce message n'a pas de VDF challenge"
+                "message": "This message has no VDF challenge"
             }
             
-        # Extraire les paramètres du VDF
+        # Extract VDF parameters
         N = vdf_challenge.get("N")
         T = vdf_challenge.get("T")
         C = vdf_challenge.get("C")
@@ -712,52 +761,52 @@ def solve_vdf_for_message(username, message_id, server_response=None):
         if not all([N, T, C]):
             return {
                 "status": "error",
-                "message": "Paramètres VDF incomplets"
+                "message": "VDF parameters incomplete"
             }
             
-        print(f"Résolution locale du VDF en cours pour le message {message_id}...")
-        print(f"Cette opération peut prendre du temps ({T} itérations)")
+        print(f"Local VDF solving in progress for message {message_id}...")
+        print(f"This operation may take time ({T} iterations)")
         
         if unlock_delay_seconds:
-            print(f"Ce message est conçu pour être déverrouillé après environ {unlock_delay_seconds} secondes")
+            print(f"This message is designed to be unlocked after about {unlock_delay_seconds} seconds")
         
-        # Résoudre le puzzle - retourne la clé en bytes
+        # Solve puzzle - return key in bytes
         challenge_key = solve_time_lock_puzzle(N, T, C)
-        print(f"Challenge key résolue (taille: {len(challenge_key)} bytes)")
+        print(f"Challenge key solved (size: {len(challenge_key)} bytes)")
         
-        # Extraire et déchiffrer le encrypted_k_msg
+        # Extract and decrypt encrypted_k_msg
         encrypted_k_msg_b64 = payload.get("encrypted_k_msg")
         if not encrypted_k_msg_b64:
             return {
                 "status": "error",
-                "message": "Paramètre encrypted_k_msg manquant"
+                "message": "encrypted_k_msg parameter missing"
             }
             
         encrypted_k_msg = base64.b64decode(encrypted_k_msg_b64)
         
-        # Déchiffrer la première couche (VDF) pour obtenir la clé chiffrée asymétriquement
+        # Decrypt first layer (VDF) to get asymmetric encrypted key
         asymmetric_encrypted_key = decrypt_with_challenge_key(encrypted_k_msg, challenge_key)
-        print(f"Première couche déchiffrée avec la clé challenge (taille: {len(asymmetric_encrypted_key)} bytes)")
+        print(f"First layer decrypted with challenge key (size: {len(asymmetric_encrypted_key)} bytes)")
         
-        # Créer une copie du message pour les modifications
+        # Create a copy of message for modifications
         updated_message = json.loads(json.dumps(message))
         updated_payload = updated_message.get("payload", {})
         
-        # Stocker la clé asymétriquement chiffrée (après résolution du VDF)
+        # Store asymmetric encrypted key (after VDF solved)
         updated_payload["encrypted_k_msg"] = base64.b64encode(asymmetric_encrypted_key).decode()
         
-        # Supprimer le VDF challenge maintenant qu'il est résolu
+        # Remove VDF challenge now that it's solved
         if "vdf_challenge" in updated_payload:
             del updated_payload["vdf_challenge"]
             
-        # Mettre à jour le message
+        # Update message
         updated_message["payload"] = updated_payload
         
-        # Sauvegarder dans un fichier local
+        # Save in local file
         user_dir = Path(f"client_messages_download/{username}")
         user_dir.mkdir(parents=True, exist_ok=True)
         
-        # Générer un nom de fichier unique
+        # Generate unique filename
         timestamp = message.get("timestamp", "")
         sender = message.get("from", "unknown")
         timestamp_str = timestamp.replace(" ", "_").replace(":", "-") if timestamp else ""
@@ -767,15 +816,15 @@ def solve_vdf_for_message(username, message_id, server_response=None):
             json.dump(updated_message, f, indent=4)
         
         try:
-            # Charger la clé privée de déchiffrement
+            # Load decryption private key
             user_dir_keys = Path(f"client_keys/{username}")
             with open(user_dir_keys / "enc_key.pem", "rb") as f:
                 priv_enc = serialization.load_pem_private_key(f.read(), password=None)
                 
-            # Déchiffrer le message avec la clé privée du destinataire
+            # Decrypt message with recipient's private key
             content = decrypt_message(updated_message, priv_enc)
             
-            # Sauvegarder le contenu déchiffré
+            # Save decrypted content
             if isinstance(content, str):
                 content_filename = f"{message_id}_{sender}_{timestamp_str}_decrypted.txt"
                 with open(user_dir / content_filename, "w", encoding="utf-8") as f:
@@ -787,7 +836,7 @@ def solve_vdf_for_message(username, message_id, server_response=None):
                     
             return {
                 "status": "success",
-                "message": "VDF résolu avec succès localement et message déchiffré",
+                "message": "VDF solved locally and message decrypted",
                 "saved_file": str(user_dir / filename),
                 "content_file": str(user_dir / content_filename),
                 "updated_message": updated_message,
@@ -795,10 +844,10 @@ def solve_vdf_for_message(username, message_id, server_response=None):
             }
             
         except Exception as e:
-            print(f"Erreur lors du déchiffrement après résolution: {e}")
+            print(f"Error decrypting after solving: {e}")
             return {
                 "status": "success",
-                "message": "VDF résolu avec succès mais erreur lors du déchiffrement: " + str(e),
+                "message": "VDF solved locally but decryption error after solving: " + str(e),
                 "saved_file": str(user_dir / filename),
                 "updated_message": updated_message,
                 "solved": True
@@ -807,40 +856,40 @@ def solve_vdf_for_message(username, message_id, server_response=None):
     except Exception as e:
         return {
             "status": "error",
-            "message": f"Erreur lors de la résolution du VDF: {str(e)}"
+            "message": f"Error solving VDF: {str(e)}"
         }
 
 def solve_vdf_for_message_locally(username, message, force_solve=False):
     """
-    Résout localement le VDF pour un message sans contacter le serveur.
+    Solve VDF locally for a message without contacting the server.
     
     Args:
-        username (str): Nom d'utilisateur
-        message (dict): Le message complet avec ses données
-        force_solve (bool): Si True, force la résolution du VDF même si la date est passée
+        username (str): User name
+        message (dict): The complete message with its data
+        force_solve (bool): If True, force VDF solving even if date has passed
         
     Returns:
-        dict: Résultat de l'opération
+        dict: Operation result
     """
     try:
         message_id = message.get("message_id")
         if not message_id:
             return {
                 "status": "error",
-                "message": "ID de message manquant"
+                "message": "Message ID missing"
             }
             
-        # Vérifier si le message a un VDF challenge
+        # Verify if message has a VDF challenge
         payload = message.get("payload", {})
         vdf_challenge = payload.get("vdf_challenge")
         
         if not vdf_challenge:
             return {
                 "status": "error",
-                "message": "Ce message n'a pas de VDF challenge"
+                "message": "This message has no VDF challenge"
             }
             
-        # Vérifier d'abord si le message est encore verrouillé par date
+        # First verify if message is still locked by date
         unlock_date_str = payload.get("unlock_date")
         if unlock_date_str and not force_solve:
             try:
@@ -851,12 +900,12 @@ def solve_vdf_for_message_locally(username, message, force_solve=False):
                 if now < unlock_datetime:
                     return {
                         "status": "error",
-                        "message": f"Message encore verrouillé jusqu'au {unlock_datetime.strftime('%d/%m/%Y %H:%M:%S')}"
+                        "message": f"Message still locked until {unlock_datetime.strftime('%d/%m/%Y %H:%M:%S')}"
                     }
             except Exception as e:
-                print(f"Erreur lors de la vérification de la date: {e}")
+                print(f"Error verifying date: {e}")
             
-        # Extraire les paramètres du VDF
+        # Extract VDF parameters
         N = vdf_challenge.get("N")
         T = vdf_challenge.get("T")
         C = vdf_challenge.get("C")
@@ -864,49 +913,49 @@ def solve_vdf_for_message_locally(username, message, force_solve=False):
         if not all([N, T, C]):
             return {
                 "status": "error",
-                "message": "Paramètres VDF incomplets"
+                "message": "VDF parameters incomplete"
             }
             
-        print(f"Résolution locale du VDF en cours pour le message {message_id}...")
-        print(f"Cette opération peut prendre du temps ({T} itérations)")
+        print(f"Local VDF solving in progress for message {message_id}...")
+        print(f"This operation may take time ({T} iterations)")
         
-        # Résoudre le puzzle - retourne la clé en bytes
+        # Solve puzzle - return key in bytes
         challenge_key = solve_time_lock_puzzle(N, T, C)
-        print(f"Challenge key résolue (taille: {len(challenge_key)} bytes)")
+        print(f"Challenge key solved (size: {len(challenge_key)} bytes)")
         
-        # Extraire et déchiffrer le encrypted_k_msg
+        # Extract and decrypt encrypted_k_msg
         encrypted_k_msg_b64 = payload.get("encrypted_k_msg")
         if not encrypted_k_msg_b64:
             return {
                 "status": "error",
-                "message": "Paramètre encrypted_k_msg manquant"
+                "message": "encrypted_k_msg parameter missing"
             }
             
         encrypted_k_msg = base64.b64decode(encrypted_k_msg_b64)
         
-        # Déchiffrer la première couche (VDF) pour obtenir la clé chiffrée asymétriquement
+        # Decrypt first layer (VDF) to get asymmetric encrypted key
         asymmetric_encrypted_key = decrypt_with_challenge_key(encrypted_k_msg, challenge_key)
-        print(f"Première couche déchiffrée avec la clé challenge (taille: {len(asymmetric_encrypted_key)} bytes)")
+        print(f"First layer decrypted with challenge key (size: {len(asymmetric_encrypted_key)} bytes)")
         
-        # Créer une copie du message pour les modifications
+        # Create a copy of message for modifications
         updated_message = json.loads(json.dumps(message))
         updated_payload = updated_message.get("payload", {})
         
-        # Stocker la clé asymétriquement chiffrée (après résolution du VDF)
+        # Store asymmetric encrypted key (after VDF solved)
         updated_payload["encrypted_k_msg"] = base64.b64encode(asymmetric_encrypted_key).decode()
         
-        # Supprimer le VDF challenge maintenant qu'il est résolu
+        # Remove VDF challenge now that it's solved
         if "vdf_challenge" in updated_payload:
             del updated_payload["vdf_challenge"]
             
-        # Mettre à jour le message
+        # Update message
         updated_message["payload"] = updated_payload
         
-        # Sauvegarder dans un fichier local
+        # Save in local file
         user_dir = Path(f"client_messages_download/{username}")
         user_dir.mkdir(parents=True, exist_ok=True)
         
-        # Générer un nom de fichier unique
+        # Generate unique filename
         timestamp = message.get("timestamp", "")
         sender = message.get("from", "unknown")
         timestamp_str = timestamp.replace(" ", "_").replace(":", "-") if timestamp else ""
@@ -916,15 +965,15 @@ def solve_vdf_for_message_locally(username, message, force_solve=False):
             json.dump(updated_message, f, indent=4)
         
         try:
-            # Charger la clé privée de déchiffrement
+            # Load decryption private key
             user_dir_keys = Path(f"client_keys/{username}")
             with open(user_dir_keys / "enc_key.pem", "rb") as f:
                 priv_enc = serialization.load_pem_private_key(f.read(), password=None)
                 
-            # Déchiffrer le message avec la clé privée du destinataire
+            # Decrypt message with recipient's private key
             content = decrypt_message(updated_message, priv_enc)
             
-            # Sauvegarder le contenu déchiffré
+            # Save decrypted content
             if isinstance(content, str):
                 content_filename = f"{message_id}_{sender}_{timestamp_str}_decrypted.txt"
                 with open(user_dir / content_filename, "w", encoding="utf-8") as f:
@@ -936,23 +985,22 @@ def solve_vdf_for_message_locally(username, message, force_solve=False):
                     
             return {
                 "status": "success",
-                "message": "VDF résolu avec succès",
-                "decrypted_content": content if isinstance(content, str) else "[Fichier déchiffré]",
+                "message": "VDF solved",
+                "decrypted_content": content if isinstance(content, str) else "[Decrypted file]",
                 "saved_file": str(user_dir / filename),
                 "content_file": str(user_dir / content_filename),
                 "updated_message": updated_message
             }
             
         except Exception as e:
-            print(f"Erreur lors du déchiffrement après résolution: {e}")
+            print(f"Error decrypting after solving: {e}")
             return {
                 "status": "error",
-                "message": f"Erreur lors du déchiffrement: {str(e)}"
+                "message": f"Error decrypting: {str(e)}"
             }
     
     except Exception as e:
         return {
             "status": "error",
-            "message": f"Erreur lors de la résolution du VDF: {str(e)}"
+            "message": f"Error solving VDF: {str(e)}"
         }
-

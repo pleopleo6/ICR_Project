@@ -154,8 +154,25 @@
                         <span class="message-date">{{ message.timestamp }}</span>
                     </div>
                     <div class="message-content" id="content-{{ message.id }}">
-                        {{ message.content }}
-                        
+                        {% if message.content %}
+                            {% if message.content.type == 'large_file' %}
+                                <div class="message-content">
+                                    <p><strong>Large File:</strong> {{ message.content.metadata.filename }}</p>
+                                    <p><strong>Size:</strong> {{ (message.content.metadata.size / 1024 / 1024)|round(2) }} MB</p>
+                                    <p><strong>Type:</strong> {{ message.content.metadata.mime_type }}</p>
+                                    <a href="{{ url_for('download_file', file_id=message.id) }}" class="btn btn-primary">Download File</a>
+                                </div>
+                            {% else %}
+                                <div class="message-content">
+                                    {{ message.content }}
+                                </div>
+                            {% endif %}
+                        {% else %}
+                            <div class="message-content">
+                                <p class="text-muted">No content available</p>
+                            </div>
+                        {% endif %}
+
                         {% if '[Fichier:' in message.content and not message.is_locked %}
                             <a href="{{ url_for('download_file', file_id='file_' + message.id) }}" class="file-download-btn">Télécharger le fichier</a>
                         {% endif %}

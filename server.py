@@ -111,6 +111,10 @@ def handle_client_request(data):
                     
                     print(f"DEBUG - Traitement du message {message_id} de {sender}")
                     
+                    # Vérifier si c'est un gros fichier
+                    file_metadata = payload.get("file_metadata", {})
+                    is_large_file = "local_file_path" in file_metadata
+                    
                     # 1. Générer une clé de défi aléatoire (32 octets)
                     challenge_key = generate_challenge_key()
                     print(f"DEBUG - Clé de défi générée: {challenge_key.hex()[:16]}...")
@@ -164,6 +168,19 @@ def handle_client_request(data):
                             "T": T,
                             "C": C
                         }
+                        
+                        # Si c'est un fichier volumineux, s'assurer que le chemin local est préservé
+                        if is_large_file:
+                            print(f"DEBUG - Fichier volumineux détecté, chemin local: {file_metadata['local_file_path']}")
+                            # Ne pas modifier le contenu du fichier, juste ajouter le VDF
+                            if "ciphertext" not in payload:
+                                print("DEBUG - Message sans contenu chiffré, c'est un fichier volumineux")
+                        else:
+                            # Pour les messages normaux, vérifier que nous avons le contenu
+                            if "ciphertext" not in payload:
+                                print("DEBUG - Message normal sans contenu chiffré")
+                                result = {"status": "error", "message": "Message content missing"}
+                                return json.dumps(result).encode()
                         
                         # Mettre à jour le payload dans le message
                         message["payload"] = payload
@@ -374,6 +391,7 @@ def run_server():
                     print(f"SSL Error: {e}")
                 except Exception as e:
                     print(f"Server error: {e}")
+
 
 if __name__ == "__main__":
     run_server()

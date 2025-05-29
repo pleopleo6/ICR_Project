@@ -1,16 +1,16 @@
 {
-    "bob": {
-        "auth_key": "Nbxgsu7B4VB9ArWv3luycx5B5OT0dtv8fk47lc54Ns8=",
-        "PubKey_sign": "zVKYiPoeRoExIGbi59CxIKprva16F+FC0sLlB3mdpf4=",
-        "PubKey_enc": "rl8vJTBZHw1VIpqivsKlx8ArWkw0UZpMtXgeUHClxU8=",
-        "Encrypted_sign_key": "hS0ObirSnE8aW4HK73xzERJgk3gsrSkLGVjA6iKp5bPvCzk12zfSEk4SoFYNoyeMSMwdqhzOUHACwFxn",
-        "Encrypted_enc_key": "cJlM+PhUge2s58cCzOuX8NSmutL4vsSjucY0KppvFe97SlrYPsbwzkFIZRCQNOL0Y7C5dyZxn8OA1Xz/"
-    },
     "alice": {
-        "auth_key": "8dTtuDVUTMnLJ7Dobnx5DM8FwzBkYlSqFJSXqAQAIhY=",
-        "PubKey_sign": "q0lD+3ALxf+4ObZmTTqPfgCtwvey1cwF4f3T+ii/gj4=",
-        "PubKey_enc": "aveoELpdYm0tiFUJlYAnJlc0CHTUiYeh0OozUkoo1Rs=",
-        "Encrypted_sign_key": "aPz+duj4lN245Qqo2qUHrjgz/5IYFuRhuTzdtipMmIvr7V2LhgZaIDcOeEetvr0wrwQkngbo9KRn0SXL",
-        "Encrypted_enc_key": "RvcvvDfXsIb4PzBD/OodInkfPZf+a6hLA9gJHsEvh4CTmAC5tSOWcXC8GQss2QphImqDSmm8a2TfJFIV"
+        "auth_key": "hL8zHJMynmfEXhkd0b4wwtr5NhWYS6zFuJJYwdQDccg=",
+        "PubKey_sign": "aM0VYAalKHkjddthR9/u26TJBY9PVLKnyMVdwZHopVM=",
+        "PubKey_enc": "Au0gZAiRho6Mk8h2RE3RjSGNZOsp8JSGseLbLH2GfFc=",
+        "Encrypted_sign_key": "pa8bdSQtjngO0FCTV4Jlav3rxPyAU4XO/KJyCnGpqBpo55NfKAUCzFbCJKoZfjXsXTUceKh3Ubqa7Ivo",
+        "Encrypted_enc_key": "RZu0tYI0mpgYuPZkiyH4QomdPf7vBDw6WCzacl6IW3YNIKyYHqEaUGTCkq9mkqJnm4n7MKhTomnMy/jM"
+    },
+    "bob": {
+        "auth_key": "T73/kqdCvmUqCRgs/7xN8oxKfyVwQrlyJupCdv3NMt8=",
+        "PubKey_sign": "Uf24x5qN40RIgD40XyB6//yP80fw5q7ak4qy5OSlDrs=",
+        "PubKey_enc": "RJNoLKQfLYGPp8+14m2OU1++ySDLyxDdvJq2wna7OAE=",
+        "Encrypted_sign_key": "be9kyEBqRotQzaUto2zkU7fcJbs4LzMLHfeBv28alhV6lrSBdYiAC1FgRykBhlsGZUY+OuOgWWXh2Id6",
+        "Encrypted_enc_key": "azuw2wj5abc0Obv1lrU9615cCdJ1sHEJhli1xRrocc726w6pW/V5H1KUjAZJfeYjKqXDzzre8Xnkocyv"
     }
 }
