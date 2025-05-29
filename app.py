@@ -11,7 +11,7 @@ from pathlib import Path
 import uuid
 import base64
 import time
-from crypto_utils import derive_encryption_key, hash_password_argon2id, derive_salt_from_username
+from crypto_utils import derive_encryption_key, hash_password_argon2id, derive_salt_from_username, generate_symmetric_key, encrypt_message_symmetric
 from vdf_crypto import generate_challenge_key, encrypt_with_challenge_key, generate_time_lock_puzzle, solve_time_lock_puzzle, decrypt_with_challenge_key
 import threading
 from cryptography.hazmat.primitives import serialization
@@ -729,48 +729,22 @@ def download_file(file_id):
     try:
         # Remove 'file_' prefix if present
         if file_id.startswith('file_'):
-            actual_id = file_id[5:]
-        else:
-            actual_id = file_id
-
-        # Get the file hash from the session
-        if 'file_refs' not in session or actual_id not in session['file_refs']:
-            flash("File reference not found", "error")
-            return redirect(url_for('retrieve_messages'))
-        
-        file_hash = session['file_refs'][actual_id]
-        file_path = Path("file_storage") / file_hash
-        
-        if not file_path.exists():
-            flash("File not found", "error")
-            return redirect(url_for('retrieve_messages'))
-        
-        # Load metadata
-        metadata_path = file_path.with_suffix('.meta')
-        if metadata_path.exists():
-            with open(metadata_path, 'r') as f:
-                metadata = json.load(f)
+            file_id = file_id[5:]
             
-            # Get filename and extension
-            filename = metadata.get('filename', f"file_{actual_id}")
-            extension = metadata.get('extension', '')
-            
-            # Add extension if not already present
-            if extension and not filename.lower().endswith(extension.lower()):
-                filename = f"{filename}{extension}"
-            
-            return send_file(
-                str(file_path),
-                as_attachment=True,
-                download_name=filename
-            )
+        # Try to find the file with any extension
+        file_storage_dir = Path("file_storage")
+        for file_path in file_storage_dir.glob(f"{file_id}.*"):
+            if file_path.exists():
+                print(f"Downloading file: {file_path}")
+                return send_file(
+                    str(file_path),
+                    as_attachment=True,
+                    download_name=file_path.name
+                )
         
-        # If no metadata, just send the file with a default name
-        return send_file(
-            str(file_path),
-            as_attachment=True,
-            download_name=f"file_{actual_id}"
-        )
+        print(f"File not found for ID: {file_id}")
+        flash("File not found", "error")
+        return redirect(url_for('retrieve_messages'))
         
     except Exception as e:
         print(f"Error downloading file: {e}")
@@ -1440,36 +1414,24 @@ def store_encrypted_file(file_path, message_id, file_metadata):
     # Generate path for the encrypted file
     encrypted_file_path = os.path.join(messages_files_dir, f"{message_id}.enc")
     
-    # Read and encrypt the file content
+    # Read the file content
     with open(file_path, 'rb') as f:
         file_content = f.read()
     
-    # Encrypt the file content
-    encrypted_content = encrypt_file_content(file_content)
+    # Generate a symmetric key for this file
+    k_msg = generate_symmetric_key()
     
-    # Store the encrypted content
+    # Encrypt the file content using ChaCha20-Poly1305
+    ciphertext, nonce = encrypt_message_symmetric(file_content, k_msg)
+    
+    # Store the encrypted content with nonce
     with open(encrypted_file_path, 'wb') as f:
-        f.write(encrypted_content)
+        f.write(nonce + ciphertext)  # Store nonce + ciphertext
+    
+    # Store the key in the metadata for later decryption
+    file_metadata['encryption_key'] = base64.b64encode(k_msg).decode()
     
     return encrypted_file_path
-
-def encrypt_file_content(content):
-    """
-    Encrypt file content using the same encryption method as messages.
-    
-    Args:
-        content (bytes): The content to encrypt
-        
-    Returns:
-        bytes: The encrypted content
-    """
-    # TODO: Implement the same encryption method used for messages
-    # For now, we'll use a simple XOR encryption as a placeholder
-    key = b'ICR_PROJECT_KEY'  # This should be replaced with proper key management
-    encrypted = bytearray()
-    for i, byte in enumerate(content):
-        encrypted.append(byte ^ key[i % len(key)])
-    return bytes(encrypted)
 
 if __name__ == "__main__":
     app.run(debug=True, port=5050)

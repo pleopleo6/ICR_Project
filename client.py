@@ -27,6 +27,7 @@ from vdf_crypto import (
 import os
 from datetime import datetime
 import uuid
+import hashlib
 
 # Ensure client_keys directory exists
 Path("client_keys").mkdir(exist_ok=True)
@@ -523,15 +524,71 @@ def decrypt_message(message, recipient_private_key, sender_pubkey_sign=None):
         from crypto_utils import decrypt_key_asymmetric
         k_msg = decrypt_key_asymmetric(encrypted_k_msg, recipient_private_key)
         
-        # If this is a large file, return the local file path instead of decrypting content
+        # If this is a large file, decrypt the file path
         if local_file_path:
-            print(f"Large file detected, returning local path: {local_file_path}")
-            return {
-                "content": local_file_path,
-                "signature_verified": signature_verified,
-                "is_large_file": True,
-                "file_metadata": file_metadata
-            }
+            print(f"Large file detected, decrypting file path: {local_file_path}")
+            try:
+                # Read the encrypted file
+                with open(local_file_path, 'rb') as f:
+                    encrypted_data = f.read()
+                
+                # Get the encryption key from metadata
+                encryption_key_b64 = file_metadata.get('encryption_key')
+                if not encryption_key_b64:
+                    return {"content": "Error: missing encryption key in metadata", "signature_verified": signature_verified}
+                
+                # Decode the key
+                k_msg = base64.b64decode(encryption_key_b64)
+                
+                # Extract nonce and ciphertext
+                nonce = encrypted_data[:12]  # First 12 bytes are nonce
+                ciphertext = encrypted_data[12:]  # Rest is ciphertext
+                
+                # Decrypt the file content
+                from crypto_utils import decrypt_message_symmetric
+                decrypted_content = decrypt_message_symmetric(ciphertext, nonce, k_msg)
+                
+                # Get file extension from metadata or detect from content
+                extension = ""
+                if file_metadata and 'filename' in file_metadata:
+                    filename = file_metadata['filename']
+                    _, ext = os.path.splitext(filename)
+                    if ext:
+                        extension = ext
+                
+                # If no extension in metadata, try to detect from content
+                if not extension and isinstance(decrypted_content, bytes):
+                    if decrypted_content.startswith(b'\xFF\xD8\xFF'):  # JPEG
+                        extension = '.jpg'
+                    elif decrypted_content.startswith(b'\x89PNG\r\n\x1A\n'):  # PNG
+                        extension = '.png'
+                    elif decrypted_content.startswith(b'GIF87a') or decrypted_content.startswith(b'GIF89a'):  # GIF
+                        extension = '.gif'
+                    elif decrypted_content.startswith(b'%PDF'):  # PDF
+                        extension = '.pdf'
+                
+                # Add extension to metadata if detected
+                if extension:
+                    if 'filename' in file_metadata:
+                        filename = file_metadata['filename']
+                        if not filename.lower().endswith(extension.lower()):
+                            file_metadata['filename'] = f"{filename}{extension}"
+                    file_metadata['extension'] = extension
+                
+                # Store the decrypted file in file_storage
+                file_hash = store_file_content(decrypted_content, message_id, file_metadata)
+                
+                # Return the file reference with the actual content
+                return {
+                    "content": decrypted_content,  # Return the actual decrypted content
+                    "signature_verified": signature_verified,
+                    "is_large_file": True,
+                    "file_metadata": file_metadata,
+                    "file_hash": file_hash  # Include the file hash for reference
+                }
+            except Exception as e:
+                print(f"Error decrypting large file: {e}")
+                return {"content": f"Error decrypting large file: {str(e)}", "signature_verified": signature_verified}
         
         # For normal messages, decrypt the content
         from crypto_utils import decrypt_message_symmetric
@@ -1004,3 +1061,104 @@ def solve_vdf_for_message_locally(username, message, force_solve=False):
             "status": "error",
             "message": f"Error solving VDF: {str(e)}"
         }
+
+def store_file_content(content, file_id, metadata):
+    """
+    Store file content on disk.
+    
+    Args:
+        content (bytes): The file content to store
+        file_id (str): Message ID
+        metadata (dict): Metadata about the file
+        
+    Returns:
+        str: Message ID with extension
+    """
+    # Create file_storage directory if it doesn't exist
+    file_storage_dir = Path("file_storage")
+    file_storage_dir.mkdir(exist_ok=True)
+    
+    # Get extension from metadata or detect from content
+    extension = ""
+    if metadata and 'filename' in metadata:
+        _, ext = os.path.splitext(metadata['filename'])
+        if ext:
+            extension = ext
+    
+    # If no extension in metadata, try to detect from content
+    if not extension and isinstance(content, bytes):
+        if content.startswith(b'\xFF\xD8\xFF'):  # JPEG
+            extension = '.jpg'
+        elif content.startswith(b'\x89PNG\r\n\x1A\n'):  # PNG
+            extension = '.png'
+        elif content.startswith(b'GIF87a') or content.startswith(b'GIF89a'):  # GIF
+            extension = '.gif'
+        elif content.startswith(b'%PDF'):  # PDF
+            extension = '.pdf'
+    
+    # Save the file with message_id.extension
+    file_path = file_storage_dir / f"{file_id}{extension}"
+    
+    # Write the content to disk
+    with open(file_path, 'wb') as f:
+        if isinstance(content, str):
+            f.write(content.encode('utf-8'))
+        else:
+            f.write(content)
+    
+    return f"{file_id}{extension}"
+
+def get_file_content(file_hash):
+    """
+    Retrieve file content from disk.
+    
+    Args:
+        file_hash (str): Hash of the file to retrieve
+        
+    Returns:
+        bytes: The file content or None if not found
+    """
+    file_storage_dir = Path("file_storage")
+    file_path = file_storage_dir / file_hash
+    
+    if not file_path.exists():
+        return None
+    
+    with open(file_path, 'rb') as f:
+        return f.read()
+
+def get_file_metadata(file_hash):
+    """
+    Retrieve file metadata from disk.
+    
+    Args:
+        file_hash (str): Hash of the file
+        
+    Returns:
+        dict: The file metadata or empty dict if not found
+    """
+    file_storage_dir = Path("file_storage")
+    metadata_path = file_storage_dir / f"{file_hash}.meta"
+    
+    if not metadata_path.exists():
+        return {}
+    
+    with open(metadata_path, 'r') as f:
+        return json.load(f)
+
+def delete_stored_file(file_hash):
+    """
+    Delete a stored file and its metadata.
+    
+    Args:
+        file_hash (str): Hash of the file to delete
+    """
+    file_storage_dir = Path("file_storage")
+    file_path = file_storage_dir / file_hash
+    metadata_path = file_storage_dir / f"{file_hash}.meta"
+    
+    if file_path.exists():
+        os.remove(file_path)
+    
+    if metadata_path.exists():
+        os.remove(metadata_path)
