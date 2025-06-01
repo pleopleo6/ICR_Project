@@ -25,7 +25,7 @@ app = Flask(__name__)
 # 3. Implement more robust session management with Redis or a database
 # 4. Add additional security middlewares
 # This is a POC with basic security (web design level)
-app.secret_key = 'votre_cle_secrete'  # Replace with a real secret key in production
+app.secret_key = 'ICR_Project_2025'  # Replace with a real secret key in production
 
 # Basic session configuration
 app.config['SESSION_COOKIE_HTTPONLY'] = True  # Prevents JavaScript access to cookies
@@ -1421,12 +1421,12 @@ def store_encrypted_file(file_path, message_id, file_metadata):
     # Generate a symmetric key for this file
     k_msg = generate_symmetric_key()
     
-    # Encrypt the file content using ChaCha20-Poly1305
+    # Encrypt the file content using XChaCha20-Poly1305
     ciphertext, nonce = encrypt_message_symmetric(file_content, k_msg)
     
     # Store the encrypted content with nonce
     with open(encrypted_file_path, 'wb') as f:
-        f.write(nonce + ciphertext)  # Store nonce + ciphertext
+        f.write(nonce + ciphertext)  # Store nonce (24 bytes) + ciphertext (includes 16-byte tag)
     
     # Store the key in the metadata for later decryption
     file_metadata['encryption_key'] = base64.b64encode(k_msg).decode()

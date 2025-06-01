@@ -1,6 +1,72 @@
 # Secure Messaging System
 
-A secure messaging system that allows users to send encrypted messages and files with time-locked access. The system uses public key cryptography for message encryption and implements secure session management.
+Un système de messagerie sécurisé permettant l'envoi de messages et fichiers chiffrés avec accès temporisé.
+
+## Prérequis
+
+- Python 3.8 ou supérieur
+- pip (gestionnaire de paquets Python)
+
+## Installation
+
+1. Cloner le repository :
+```bash
+git clone <repository-url>
+cd <repository-name>
+```
+
+2. Créer un environnement virtuel :
+```bash
+python -m venv venv
+source venv/bin/activate  # Sur Windows : venv\Scripts\activate
+```
+
+3. Installer les dépendances :
+```bash
+pip install -r requirements.txt
+```
+
+## Génération des certificats SSL
+
+Pour une communication sécurisée, générez les certificats SSL :
+```bash
+openssl req -x509 -newkey rsa:4096 -nodes -out server.crt -keyout server.key -days 365
+```
+
+## Exécution du programme
+
+1. Démarrer le serveur :
+```bash
+python server.py
+```
+
+2. Dans un autre terminal, démarrer l'application web :
+```bash
+python app.py
+```
+
+L'application sera accessible à l'adresse : `http://localhost:5050`
+
+## Utilisation
+
+1. Créer un compte :
+   - Accéder à la page de connexion
+   - Cliquer sur "Create new account"
+   - Suivre le processus d'inscription
+
+2. Se connecter :
+   - Entrer votre nom d'utilisateur et mot de passe
+   - Vous serez redirigé vers le tableau de bord
+
+3. Envoyer un message :
+   - Choisir entre message texte ou fichier
+   - Entrer le nom d'utilisateur du destinataire
+   - Définir la date de déverrouillage (DD:MM:YYYY:HH:MM:SS)
+   - Cliquer sur "Send Message"
+
+4. Consulter les messages :
+   - Cliquer sur "View Messages" dans le tableau de bord
+   - Les messages seront affichés s'ils sont déverrouillés
 
 ## Features
 
@@ -12,82 +78,11 @@ A secure messaging system that allows users to send encrypted messages and files
 - Password change functionality
 - Message retrieval system
 
-## Prerequisites
-
-- Python 3.8 or higher
-- pip (Python package manager)
-- OpenSSL (for SSL/TLS support)
-
-## Installation
-
-1. Clone the repository:
-```bash
-git clone <repository-url>
-cd <repository-name>
-```
-
-2. Create a virtual environment (recommended):
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-3. Install the required dependencies:
-```bash
-pip install flask
-```
-
 ## Configuration
 
-1. Generate SSL certificates for secure communication:
-```bash
-# Generate server certificate
-openssl req -x509 -newkey rsa:4096 -nodes -out server.crt -keyout server.key -days 365
-```
-
-2. Place the certificates in the project root directory:
+1. Place the certificates in the project root directory:
 - `server.crt`
 - `server.key`
-
-## Running the Application
-
-1. Start the server:
-```bash
-python server.py
-```
-
-2. In a separate terminal, start the web application:
-```bash
-python app.py
-```
-
-The web application will be available at `http://localhost:5050`
-
-## Usage
-
-1. Create an account:
-   - Navigate to the login page
-   - Click "Create new account"
-   - Follow the registration process
-
-2. Login:
-   - Enter your username and password
-   - You'll be redirected to the dashboard upon successful login
-
-3. Send a message:
-   - Choose between text message or file upload
-   - Enter recipient's username
-   - Set the unlock date (DD:MM:YYYY:HH:MM:SS)
-   - Click "Send Message"
-
-4. Retrieve messages:
-   - Click "View Messages" in the dashboard
-   - Messages will be displayed if they're past their unlock date
-
-5. Change password:
-   - Click "Change Password" in the dashboard
-   - Enter current and new password
-   - Submit to update
 
 ## Security Features
 
@@ -124,19 +119,3 @@ This is a Proof of Concept (POC) implementation. For production use, consider:
     ├── send_message.html
     └── ...
 ```
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
-
-## License
-
-[Add your license information here]
-
-## Contact
-
-[Add your contact information here]

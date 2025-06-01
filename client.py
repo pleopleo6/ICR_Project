@@ -541,8 +541,8 @@ def decrypt_message(message, recipient_private_key, sender_pubkey_sign=None):
                 k_msg = base64.b64decode(encryption_key_b64)
                 
                 # Extract nonce and ciphertext
-                nonce = encrypted_data[:12]  # First 12 bytes are nonce
-                ciphertext = encrypted_data[12:]  # Rest is ciphertext
+                nonce = encrypted_data[:24]  # First 24 bytes are nonce
+                ciphertext = encrypted_data[24:]  # Rest is ciphertext (includes 16-byte tag)
                 
                 # Decrypt the file content
                 from crypto_utils import decrypt_message_symmetric

@@ -7,7 +7,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.asymmetric import ed25519, x25519
-from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+from Crypto.Cipher import ChaCha20_Poly1305
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 import json
 import hashlib
@@ -71,38 +71,39 @@ def generate_x25519_keypair():
     return private_key, public_key
 
 def encrypt_private_key(private_key_bytes: bytes, key: bytes) -> bytes:
-    aead = ChaCha20Poly1305(key)
-    nonce = generate_salt(12)
-    ciphertext = aead.encrypt(nonce, private_key_bytes, associated_data=None)
-    return nonce + ciphertext #TAG include at the end of ciphertext
+    nonce = generate_salt(24)
+    cipher = ChaCha20_Poly1305.new(key=key, nonce=nonce)
+    ciphertext, tag = cipher.encrypt_and_digest(private_key_bytes)
+    return nonce + ciphertext + tag
 
 def decrypt_private_key(encrypted_data: bytes, key: bytes) -> bytes:
-    """Decrypt private key encrypted with ChaCha20-Poly1305"""
-    aead = ChaCha20Poly1305(key)
-    nonce = encrypted_data[:12]  # First 12 bytes are nonce
-    ciphertext = encrypted_data[12:]  # Rest is ciphertext+tag
-    return aead.decrypt(nonce, ciphertext, associated_data=None)
+    """Decrypt private key encrypted with XChaCha20-Poly1305"""
+    nonce = encrypted_data[:24]
+    ciphertext = encrypted_data[24:-16]  # Last 16 bytes are the tag
+    tag = encrypted_data[-16:]
+    cipher = ChaCha20_Poly1305.new(key=key, nonce=nonce)
+    return cipher.decrypt_and_verify(ciphertext, tag)
 
 def generate_symmetric_key(length: int = 32) -> bytes:
     """
     Generate a cryptographically secure random symmetric key.
-    Uses ChaCha20-Poly1305 which requires a 32-byte key.
+    Uses XChaCha20-Poly1305 which requires a 32-byte key.
     """
     return secrets.token_bytes(length)
 
 def encrypt_message_symmetric(message: bytes, key: bytes) -> tuple[bytes, bytes]:
     """
-    Encrypt a message using ChaCha20-Poly1305.
+    Encrypt a message using XChaCha20-Poly1305.
     Returns (ciphertext, nonce) tuple.
     """
-    aead = ChaCha20Poly1305(key)
-    nonce = generate_salt(12)  # ChaCha20-Poly1305 uses 12-byte nonce
-    ciphertext = aead.encrypt(nonce, message, associated_data=None)
-    return ciphertext, nonce
+    nonce = generate_salt(24)
+    cipher = ChaCha20_Poly1305.new(key=key, nonce=nonce)
+    ciphertext, tag = cipher.encrypt_and_digest(message)
+    return ciphertext + tag, nonce
 
 def encrypt_key_asymmetric(key: bytes, recipient_public_key_bytes: bytes) -> bytes:
     """
-    Encrypt a symmetric key using X25519 key exchange and ChaCha20-Poly1305.
+    Encrypt a symmetric key using X25519 key exchange and XChaCha20-Poly1305.
     This implements a secure hybrid encryption scheme.
     """
     # Convert the recipient's public key bytes to X25519PublicKey
@@ -125,15 +126,15 @@ def encrypt_key_asymmetric(key: bytes, recipient_public_key_bytes: bytes) -> byt
     ).derive(shared_key)
     
     # Encrypt the symmetric key
-    aead = ChaCha20Poly1305(derived_key)
-    nonce = generate_salt(12)
-    ciphertext = aead.encrypt(nonce, key, associated_data=None)
+    nonce = generate_salt(24)
+    cipher = ChaCha20_Poly1305.new(key=derived_key, nonce=nonce)
+    ciphertext, tag = cipher.encrypt_and_digest(key)
     
-    # Return ephemeral public key + nonce + ciphertext
+    # Return ephemeral public key + nonce + ciphertext + tag
     return ephemeral_public_key.public_bytes(
         encoding=serialization.Encoding.Raw,
         format=serialization.PublicFormat.Raw
-    ) + nonce + ciphertext
+    ) + nonce + ciphertext + tag
 
 def hash_dict(d: dict) -> bytes:
     """
@@ -150,7 +151,7 @@ def hash_dict(d: dict) -> bytes:
 
 def decrypt_key_asymmetric(encrypted_data, recipient_private_key):
     """
-    Decrypts a symmetric key encrypted with X25519 and ChaCha20-Poly1305.
+    Decrypts a symmetric key encrypted with X25519 and XChaCha20-Poly1305.
     
     Args:
         encrypted_data (bytes): Symmetric key encrypted
@@ -161,8 +162,9 @@ def decrypt_key_asymmetric(encrypted_data, recipient_private_key):
     """
     # First 32 bytes are the ephemeral public key
     ephemeral_pubkey_bytes = encrypted_data[:32]
-    nonce = encrypted_data[32:44]  # 12 bytes for nonce
-    ciphertext = encrypted_data[44:]  # The rest is the ciphertext
+    nonce = encrypted_data[32:56]  # 24 bytes for nonce
+    ciphertext = encrypted_data[56:-16]  # The rest minus 16 bytes for tag
+    tag = encrypted_data[-16:]
     
     # Convert to public key object
     ephemeral_public_key = x25519.X25519PublicKey.from_public_bytes(ephemeral_pubkey_bytes)
@@ -179,24 +181,26 @@ def decrypt_key_asymmetric(encrypted_data, recipient_private_key):
         backend=default_backend()
     ).derive(shared_key)
     
-    # Decrypt with ChaCha20-Poly1305
-    aead = ChaCha20Poly1305(derived_key)
-    return aead.decrypt(nonce, ciphertext, associated_data=None)
+    # Decrypt with XChaCha20-Poly1305
+    cipher = ChaCha20_Poly1305.new(key=derived_key, nonce=nonce)
+    return cipher.decrypt_and_verify(ciphertext, tag)
 
 def decrypt_message_symmetric(ciphertext, nonce, key):
     """
-    Decrypts a message with ChaCha20-Poly1305.
+    Decrypts a message with XChaCha20-Poly1305.
     
     Args:
-        ciphertext (bytes): Encrypted message
+        ciphertext (bytes): Encrypted message (including tag)
         nonce (bytes): Nonce used for encryption
         key (bytes): Symmetric key
         
     Returns:
         bytes: Decrypted message
     """
-    aead = ChaCha20Poly1305(key)
-    return aead.decrypt(nonce, ciphertext, associated_data=None)
+    cipher = ChaCha20_Poly1305.new(key=key, nonce=nonce)
+    message = ciphertext[:-16]  # Last 16 bytes are the tag
+    tag = ciphertext[-16:]
+    return cipher.decrypt_and_verify(message, tag)
 
 def verify_signature(message_hash: bytes, signature: bytes, public_key_bytes: bytes) -> bool:
     """
